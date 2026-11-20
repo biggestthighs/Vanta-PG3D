@@ -21,7 +21,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE); return control;
         };
         label(L"VANTA",28,23,430,48,titleFont);
-        label(L"PIXEL GUN 3D  /  v0.1.1 preview",30,78,450,26,bodyFont);
+        label(L"PIXEL GUN 3D  /  v0.1.3 preview",30,78,450,26,bodyFont);
         label(L"1. Start the game and wait for the main menu.\n2. Load Vanta, then return to the game.\n3. Press INSERT to open your controls.",30,126,470,80,bodyFont);
         statusText = label(L"Ready. Your settings are saved beside the DLL.",30,225,470,64,bodyFont);
         loadButton = CreateWindowW(L"BUTTON",L"Load Vanta",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON,30,310,210,42,window,reinterpret_cast<HMENU>(1),nullptr,nullptr);

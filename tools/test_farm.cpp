@@ -1,4 +1,5 @@
 #include "../src/features/farm_state.h"
+#include "../src/core/input_isolation.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -10,6 +11,41 @@ static void Require(bool condition, const char* message) {
 
 int main() {
     try {
+        // A synthetic release previously reached UI processing after its press
+        // was hidden. Reproduce that sequence across both UI backends.
+        for (int backend = 0; backend < 2; ++backend) {
+            for (int edge = 0; edge < 3; ++edge) {
+                Require(input::UiInputScope::Filter(false, true), "weapon must see automated input");
+                {
+                    input::UiInputScope ui;
+                    Require(!input::UiInputScope::Filter(false, true), "UI must never see automated press/hold/release");
+                    Require(input::UiInputScope::Filter(true, false), "physical UI input must still work");
+                    { input::UiInputScope nested; }
+                    Require(!input::UiInputScope::Filter(false, true), "nested processing must preserve isolation");
+                }
+                Require(input::UiInputScope::Filter(false, true), "weapon input must resume after UI processing");
+            }
+        }
+        try { input::UiInputScope ui; throw 1; } catch (int) {}
+        Require(input::UiInputScope::depth == 0, "UI isolation must unwind on exceptions");
+        input::ButtonEdges edges;
+        edges.Sample(0, true);
+        Require(edges.Value(0) && edges.Value(1) && !edges.Value(2), "first frame must expose press and hold");
+        edges.Sample(0, false);
+        Require(edges.Value(1), "queries in the same frame must preserve press");
+        edges.Sample(1, true);
+        Require(edges.Value(0) && !edges.Value(1), "hold must not repeat the press edge");
+        edges.Sample(2, false);
+        Require(!edges.Value(0) && edges.Value(2), "release must occur once");
+        {
+            input::UiInputScope ui;
+            Require(!input::UiInputScope::Filter(false, edges.Value(2)), "UI must not see a virtual key release");
+        }
+        edges.Sample(3, false);
+        Require(!edges.Value(2), "release must not stick");
+        edges.Sample(0xffffffffu, true);
+        edges.Sample(0, false);
+        Require(edges.Value(2), "frame counter rollover must preserve release");
         Controller controller;
         Observation screen;
         screen.matchKills = 0;

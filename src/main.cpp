@@ -32,6 +32,7 @@ static DWORD WINAPI Main(LPVOID) {
     }
 
     while (g_run) {
+        render::ObserveFocus();
         input::Update();
         if (input::Pressed(VK_END)) break;
         Sleep(10);
