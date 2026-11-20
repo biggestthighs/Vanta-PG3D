@@ -25,7 +25,10 @@ namespace triggerbot {
     static bool s_down = false;
     static DWORD s_upAt = 0;
     static void Mouse(bool down) {
-        render::SetAutoFire(1, down);
+        INPUT in{};
+        in.type = INPUT_MOUSE;
+        in.mi.dwFlags = down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+        SendInput(1, &in, sizeof(in));
         s_down = down;
     }
 

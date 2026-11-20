@@ -99,4 +99,42 @@ namespace input {
     bool Down(int vk)    { return vk > 0 && vk < 256 && s_cur[vk]; }
     bool Pressed(int vk) { return vk > 0 && vk < 256 && s_cur[vk] && !s_prev[vk]; }
 
+    bool CanAutoClick() {
+        const HWND foreground = GetForegroundWindow();
+        DWORD process = 0;
+        GetWindowThreadProcessId(foreground, &process);
+        if (!foreground || process != GetCurrentProcessId()) return false;
+        // SendInput uses the OS cursor, even when Unity hides it. Foreground
+        // alone does not protect the taskbar or another window under that cursor.
+        if ((GetAsyncKeyState(VK_MENU) | GetAsyncKeyState(VK_LWIN) |
+             GetAsyncKeyState(VK_RWIN)) & 0x8000) return false;
+        POINT point{};
+        RECT client{};
+        if (!GetCursorPos(&point) || !GetClientRect(foreground, &client)) return false;
+        const HWND underCursor = WindowFromPoint(point);
+        if (!underCursor || GetAncestor(underCursor, GA_ROOT) != GetAncestor(foreground, GA_ROOT)) return false;
+        if (!ScreenToClient(foreground, &point) || !PtInRect(&client, point)) return false;
+        return foreground == GetForegroundWindow();
+    }
+
+    void Click(int holdMs) {
+        if (!CanAutoClick()) return;
+        INPUT in{};
+        in.type = INPUT_MOUSE;
+        in.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+        SendInput(1, &in, sizeof(in));
+        Sleep(holdMs > 0 ? holdMs : 1);
+        in.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+        SendInput(1, &in, sizeof(in));
+    }
+
+    void Tap(int vk, int holdMs) {
+        INPUT in{};
+        in.type = INPUT_KEYBOARD;
+        in.ki.wVk = static_cast<WORD>(vk);
+        SendInput(1, &in, sizeof(in));
+        Sleep(holdMs);
+        in.ki.dwFlags = KEYEVENTF_KEYUP;
+        SendInput(1, &in, sizeof(in));
+    }
 }

@@ -1,6 +1,5 @@
 #include "features.h"
 #include "../core/config.h"
-#include "../core/render.h"
 
 // Only features that work without guessing at obfuscated fields live here. The weapon and
 // health memory writers were removed: their field offsets were never confirmed, so on a
@@ -12,10 +11,16 @@ namespace misc {
         game::ApplyFov();
     }
 
-    // Virtual Space press/release across frames; never inject desktop keys.
+    // Space press/release across frames (render thread, once per frame); input::Tap would
+    // Sleep inside Present and stutter the game.
     static bool s_keyDown = false;
     static void Key(bool down) {
-        render::SetAutoJump(down);
+        if (down && !input::CanAutoClick()) return;
+        INPUT in{};
+        in.type = INPUT_KEYBOARD;
+        in.ki.wVk = VK_SPACE;
+        in.ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
+        SendInput(1, &in, sizeof(in));
         s_keyDown = down;
     }
     void ReleaseInput() { if (s_keyDown) Key(false); }

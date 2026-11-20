@@ -42,4 +42,7 @@ namespace input {
     void Update();
     bool Down(int vk);
     bool Pressed(int vk);
+    bool CanAutoClick();
+    void Click(int holdMs);
+    void Tap(int vk, int holdMs);
 }

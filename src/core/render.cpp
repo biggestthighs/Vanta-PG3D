@@ -2,7 +2,6 @@
 #include "config.h"
 #include "../features/farm.h"
 #include "menu.h"
-#include "input_isolation.h"
 #include "../sdk/game.h"
 #include "../features/features.h"
 #include "../sdk/il2cpp.h"
@@ -46,125 +45,28 @@ namespace render {
     // weapon fire button reads UnityEngine.Input. While the menu is open both see nothing.
     using Fn4 = void(__fastcall*)(void*, void*, void*, void*);
     using BtnFn = bool(__fastcall*)(int, void*);
-    static Fn4 oProcMouse = nullptr, oProcTouches = nullptr, oEventUpdate = nullptr;
+    static Fn4 oProcMouse = nullptr, oProcTouches = nullptr;
     static BtnFn oBtn = nullptr, oBtnDown = nullptr, oBtnUp = nullptr;
-    static BtnFn oKey = nullptr, oKeyDown = nullptr, oKeyUp = nullptr;
-    static void __fastcall hkProcMouse(void* s, void* a, void* b, void* c) {
-        input::UiInputScope scope;
-        if (!MenuOpen) oProcMouse(s, a, b, c);
-    }
-    static void __fastcall hkProcTouches(void* s, void* a, void* b, void* c) {
-        input::UiInputScope scope;
-        if (!MenuOpen) oProcTouches(s, a, b, c);
-    }
-    static void __fastcall hkEventUpdate(void* s, void* a, void* b, void* c) {
-        input::UiInputScope scope;
-        oEventUpdate(s, a, b, c);
-    }
-    // Automation is visible only to Unity Input. Never synthesize desktop clicks.
-    static std::atomic<bool> autoFire[2]{};
-    // Present supplies a frame boundary without relying on a managed Time
-    // accessor, which is absent in some IL2CPP builds.
-    static std::atomic<unsigned> renderFrame{0};
-    static std::atomic<unsigned> virtualQueries{0}, uiFiltered{0}, keyQueries{0};
-    static std::atomic<bool> inputReady{false};
-    static std::atomic<bool> autoJump{false};
-    void SetAutoFire(int source, bool down) {
-        if (source >= 0 && source < 2) autoFire[source] = down && inputReady;
-    }
-    static bool CanAutomate() {
-        return inputReady && !MenuOpen && !cfg.panic && !farm::SuppressFeatures() &&
-               Hwnd && GetForegroundWindow() == Hwnd && game::Local() &&
-               !((GetAsyncKeyState(VK_MENU) | GetAsyncKeyState(VK_LWIN) |
-                   GetAsyncKeyState(VK_RWIN)) & 0x8000);
-    }
-    bool AutoFireHeld() { return CanAutomate() && (autoFire[0] || autoFire[1]); }
-    void SetAutoJump(bool down) { autoJump = down; }
-    static input::ButtonEdges fireEdges, jumpEdges;
-    static bool ReadVirtual(int key, int edge, bool physical) {
-        const bool fire = key == 323; // Unity KeyCode.Mouse0, not Windows VK_LBUTTON.
-        const bool jump = key == 32;
-        if (!fire && !jump) return !MenuOpen && physical;
-        const bool allowed = CanAutomate();
-        auto& state = fire ? fireEdges : jumpEdges;
-        state.Sample(renderFrame.load(), allowed && (fire ? AutoFireHeld() : autoJump.load()));
-        const bool value = allowed && state.Value(edge);
-        if (fire && value) {
-            if (input::UiInputScope::depth) ++uiFiltered; else ++virtualQueries;
-        }
-        return !MenuOpen && input::UiInputScope::Filter(physical, value);
-    }
-    static bool __fastcall hkBtn(int i, void* mi) {
-        return ReadVirtual(i == 0 ? 323 : -1, 0, oBtn(i, mi));
-    }
-    static bool __fastcall hkBtnDown(int i, void* mi) {
-        return ReadVirtual(i == 0 ? 323 : -1, 1, oBtnDown(i, mi));
-    }
-    static bool __fastcall hkBtnUp(int i, void* mi) {
-        return ReadVirtual(i == 0 ? 323 : -1, 2, oBtnUp(i, mi));
-    }
-    static bool __fastcall hkKey(int key, void* mi) {
-        if (key == 323) ++keyQueries;
-        return ReadVirtual(key, 0, oKey(key, mi));
-    }
-    static bool __fastcall hkKeyDown(int key, void* mi) {
-        return ReadVirtual(key, 1, oKeyDown(key, mi));
-    }
-    static bool __fastcall hkKeyUp(int key, void* mi) {
-        return ReadVirtual(key, 2, oKeyUp(key, mi));
-    }
+    static void __fastcall hkProcMouse(void* s, void* a, void* b, void* c) { if (!MenuOpen) oProcMouse(s, a, b, c); }
+    static void __fastcall hkProcTouches(void* s, void* a, void* b, void* c) { if (!MenuOpen) oProcTouches(s, a, b, c); }
+    static bool __fastcall hkBtn(int i, void* mi) { return !MenuOpen && oBtn(i, mi); }
+    static bool __fastcall hkBtnDown(int i, void* mi) { return !MenuOpen && oBtnDown(i, mi); }
+    static bool __fastcall hkBtnUp(int i, void* mi) { return !MenuOpen && oBtnUp(i, mi); }
 
-    static bool HookMethod(void* cls, const char* name, int argc, void* detour, void** orig) {
+    static void HookMethod(void* cls, const char* name, int argc, void* detour, void** orig) {
         void* m = il2::MethodPtr(cls, name, argc);
         const MH_STATUS s = m ? MH_CreateHook(m, detour, orig) : MH_ERROR_NOT_CREATED;
-        const MH_STATUS enabled = s == MH_OK ? MH_EnableHook(m) : MH_ERROR_NOT_CREATED;
-        Log("[render] game input block: %s %p create=%d enable=%d", name, m, s, enabled);
-        return s == MH_OK && enabled == MH_OK;
+        Log("[render] game input block: %s %p create=%d enable=%d", name, m, s, s == MH_OK ? MH_EnableHook(m) : -1);
     }
 
     void InstallGameInputBlock() {
         void* ui = il2::Class("UICamera");
-        const bool mouse = HookMethod(ui, "ProcessMouse", -1, &hkProcMouse, reinterpret_cast<void**>(&oProcMouse));
-        const bool touches = HookMethod(ui, "ProcessTouches", -1, &hkProcTouches, reinterpret_cast<void**>(&oProcTouches));
-        void* eventSystem = il2::Class("EventSystem", "UnityEngine.EventSystems");
-        const bool events = !eventSystem || HookMethod(eventSystem, "Update", 0,
-                   &hkEventUpdate, reinterpret_cast<void**>(&oEventUpdate));
+        HookMethod(ui, "ProcessMouse", -1, &hkProcMouse, reinterpret_cast<void**>(&oProcMouse));
+        HookMethod(ui, "ProcessTouches", -1, &hkProcTouches, reinterpret_cast<void**>(&oProcTouches));
         void* in = il2::Class("Input", "UnityEngine");
-        const bool button = HookMethod(in, "GetMouseButton", 1, &hkBtn, reinterpret_cast<void**>(&oBtn));
-        const bool down = HookMethod(in, "GetMouseButtonDown", 1, &hkBtnDown, reinterpret_cast<void**>(&oBtnDown));
-        const bool up = HookMethod(in, "GetMouseButtonUp", 1, &hkBtnUp, reinterpret_cast<void**>(&oBtnUp));
-        // PC key bindings use GetKey(KeyCode.Mouse0), which delegates to
-        // GetKeyInt. Mouse-button hooks alone never reach that path.
-        const bool key = HookMethod(in, "GetKeyInt", 1, &hkKey, reinterpret_cast<void**>(&oKey));
-        const bool keyDown = HookMethod(in, "GetKeyDownInt", 1, &hkKeyDown, reinterpret_cast<void**>(&oKeyDown));
-        const bool keyUp = HookMethod(in, "GetKeyUpInt", 1, &hkKeyUp, reinterpret_cast<void**>(&oKeyUp));
-        inputReady = mouse && touches && events && button && down && up && key && keyDown && keyUp;
-        Log("[input] game-only auto-fire ready=%d; no desktop mouse injection", inputReady.load());
-        Log("[input] UI isolation covers press, hold and release (NGUI and EventSystem)");
-    }
-
-    void ObserveFocus() {
-        if (!Hwnd) return;
-        static ULONGLONG lastStats = 0;
-        if (GetTickCount64() - lastStats >= 30000) {
-            lastStats = GetTickCount64();
-            Log("[input] virtual weapon queries=%u UI queries filtered=%u Mouse0 key queries=%u", virtualQueries.load(), uiFiltered.load(), keyQueries.load());
-        }
-        static HWND previous = nullptr;
-        const HWND foreground = GetForegroundWindow();
-        if (foreground == previous) return;
-        previous = foreground;
-        DWORD pid = 0;
-        GetWindowThreadProcessId(foreground, &pid);
-        char image[MAX_PATH] = "unknown";
-        DWORD size = MAX_PATH;
-        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-        if (process) { QueryFullProcessImageNameA(process, 0, image, &size); CloseHandle(process); }
-        const char* basename = strrchr(image, '\\');
-        Log("[focus] uptime=%llu game=%d foreground=%s pid=%lu farm=%d menu=%d alt=%d tab=%d lmb=%d",
-            GetTickCount64(), foreground == Hwnd, basename ? basename + 1 : image, pid,
-            farm::Active(), MenuOpen, !!(GetAsyncKeyState(VK_MENU) & 0x8000),
-            !!(GetAsyncKeyState(VK_TAB) & 0x8000), !!(GetAsyncKeyState(VK_LBUTTON) & 0x8000));
+        HookMethod(in, "GetMouseButton", 1, &hkBtn, reinterpret_cast<void**>(&oBtn));
+        HookMethod(in, "GetMouseButtonDown", 1, &hkBtnDown, reinterpret_cast<void**>(&oBtnDown));
+        HookMethod(in, "GetMouseButtonUp", 1, &hkBtnUp, reinterpret_cast<void**>(&oBtnUp));
     }
 
     LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
@@ -191,7 +93,6 @@ namespace render {
     }
 
     HRESULT __stdcall hkPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
-        ++renderFrame;
         if (!s_init) {
             s_swap = sc;
             if (SUCCEEDED(sc->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&s_dev))) && s_dev) {
@@ -337,9 +238,6 @@ namespace render {
     bool Ready() { return s_init; }
 
     void Shutdown() {
-        autoFire[0] = autoFire[1] = false;
-        autoJump = false;
-        inputReady = false;
         if (s_wnd && Hwnd) { SetWindowLongPtrW(Hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(s_wnd)); s_wnd = nullptr; }
         if (s_vt && oPresent) {
             DWORD old = 0;
