@@ -1,0 +1,16 @@
+VANTA v0.1.0 preview - Windows x64
+
+Extract the ENTIRE zip first. Keep Vanta.exe, pg3d_core.dll, offsets.json
+and the models folder together.
+
+1. Start Pixel Gun 3D and wait for its main menu.
+2. Open Vanta.exe and click Load Vanta.
+3. Return to the game and press INSERT.
+
+INSERT = menu | DELETE = panic | END = unload
+
+Farm: set kills per match, press Start farm, close the menu.
+Keep the game focused. Stop farm restores your previous settings.
+Custom models are experimental. See README.md for known limitations.
+
+Source code is in source/. No developer tools are needed to run Vanta.

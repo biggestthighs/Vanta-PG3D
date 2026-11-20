@@ -1,0 +1,26 @@
+name: Build Windows package
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -A x64
+      - name: Compile
+        run: cmake --build build --config Release --target Vanta pg3d_core pg3d_farm_test pg3d_model_handle_test
+      - name: Regression tests
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Package source and executable
+        shell: pwsh
+        run: ./tools/package.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Vanta-win64-with-source
+          path: dist/*

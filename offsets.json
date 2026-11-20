@@ -1,0 +1,27 @@
+{
+  "_note": "RVAs relative to GameAssembly.dll, fallback only. Valid as of the Jan 2025 build.",
+  "rva": {
+    "world_to_screen": 4424048,
+    "camera_get_main": 4423312,
+    "get_transform": 4477280,
+    "get_position": 4477696,
+    "get_rotation": 4477200,
+    "set_rotation": 4478272,
+    "look_at": 4473360,
+    "raycast": 4502800,
+    "text_get_text": 4531344,
+    "text_get_color": 4531056,
+    "behaviour_enabled": 4472160,
+    "set_fov": 4424056,
+    "make_invisible": 1810240,
+    "set_critical": 7275504
+  },
+  "fields": {
+    "nickLabel": 1192,
+    "myPlayerTransform": 1160,
+    "headCollider": 392,
+    "playerDamageable": -1,
+    "weaponSoundsPlayerMoveC": -1,
+    "bulletDelay": 428
+  }
+}

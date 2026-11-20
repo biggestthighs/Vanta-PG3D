@@ -1,0 +1,13 @@
+/build/
+/dist/
+/out/
+/.vs/
+*.log
+*.dmp
+*.pdb
+*.ilk
+*.obj
+*.user
+config.json
+pg3d_dump.txt
+stats_probe.txt
