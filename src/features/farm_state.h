@@ -4,7 +4,7 @@
 #include <string>
 
 namespace farm::logic {
-    enum class Action { None, Reward, Replay, Deathmatch, Battle, Start, Respawn, Classic };
+    enum class Action { None, Reward, Replay, Deathmatch, Battle, Start, Respawn, Classic, NuclearCity };
     enum class Phase { Waiting, Fighting, Idle, Rewards, Queueing, Paused };
 
     struct Observation {
@@ -15,6 +15,7 @@ namespace farm::logic {
         bool replay = false;
         bool deathmatch = false;
         bool classic = false;
+        bool nuclearCity = false;
         bool battle = false;
         bool start = false;
         bool respawn = false;
@@ -32,6 +33,7 @@ namespace farm::logic {
     struct Controller {
         bool inMatch = false;
         bool modeSelected = false;
+        bool mapSelected = false;
         uintptr_t matchId = 0;
         bool quotaReached = false;
         int kills = 0;
@@ -74,6 +76,7 @@ namespace farm::logic {
             result.phase = Phase::Queueing;
             if (observation.deathmatch && !modeSelected) result.action = Action::Deathmatch;
             else if (observation.classic) result.action = Action::Classic;
+            else if (observation.nuclearCity && modeSelected && !mapSelected) result.action = Action::NuclearCity;
             else if (observation.start && modeSelected) result.action = Action::Start;
             else if (observation.battle) result.action = Action::Battle;
             return result;
@@ -81,7 +84,8 @@ namespace farm::logic {
 
         void Clicked(Action action) {
             if (action == Action::Deathmatch) modeSelected = true;
-            if (action == Action::Battle) modeSelected = false;
+            if (action == Action::NuclearCity) mapSelected = true;
+            if (action == Action::Battle) { modeSelected = false; mapSelected = false; }
         }
     };
 
@@ -102,6 +106,13 @@ namespace farm::logic {
     inline Action Classify(const std::string& path, const std::string& label) {
         const std::string name = Normalize(path), text = Normalize(label);
         const std::string leaf = Normalize(path.substr(path.find_last_of('/') == std::string::npos ? 0 : path.find_last_of('/') + 1));
+        const bool weaponNotice = name.find("newweapons") != std::string::npos || name.find("newguns") != std::string::npos ||
+                                  name.find("availableweapons") != std::string::npos || name.find("weaponsavailable") != std::string::npos ||
+                                  name.find("levelupweapons") != std::string::npos;
+        if (weaponNotice && (leaf == "close" || leaf == "btnclose" || leaf == "buttonclose" || leaf == "closebutton"))
+            return Action::Reward;
+        // Dismiss only the notice's close surface, never its weapon tiles.
+        if (text == "pressanywheretoclose" || text == "tapanywheretoclose") return Action::Reward;
         for (const char* blocked : {"purchase", "buy", "shop", "upgrade", "unlock", "watchvideo", "advert", "doublethe", "doubleyour", "openchest", "gems", "subscription", "spend"})
             if (name.find(blocked) != std::string::npos || text.find(blocked) != std::string::npos) return Action::None;
         // Trophy Continue and the match-reward OK share EndInterface. Their
@@ -118,6 +129,7 @@ namespace farm::logic {
         if (name.find("networkstarttablengui") != std::string::npos &&
             name.find("startinterface") != std::string::npos && leaf == "startbutton" && text == "tobattle")
             return Action::Replay;
+        if (text.rfind("nuclearcity", 0) == 0) return Action::NuclearCity;
         if (text.rfind("classicmodes", 0) == 0) return Action::Classic;
         if (text == "deathmatch" || (name.find("modetab") != std::string::npos && text.rfind("deathmatch", 0) == 0) ||
             name.find("buttondeathmatch") != std::string::npos || name.find("deathmatchbutton") != std::string::npos)
@@ -137,7 +149,7 @@ namespace farm::logic {
         const std::string name = Normalize(path);
         if (name.find("networkstarttablengui") != std::string::npos &&
             name.find("endinterface") != std::string::npos) return true;
-        for (const char* marker : {"popup", "dialog", "levelup", "rewardwindow", "rewardpanel", "rewardsscreen", "awardwindow", "progressroad"})
+        for (const char* marker : {"popup", "dialog", "levelup", "rewardwindow", "rewardpanel", "rewardsscreen", "awardwindow", "progressroad", "newweapons", "newguns", "leveling"})
             if (name.find(marker) != std::string::npos) return true;
         return false;
     }

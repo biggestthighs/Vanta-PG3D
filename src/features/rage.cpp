@@ -237,23 +237,11 @@ namespace {
     bool g_autoDown = false;
     DWORD g_autoT = 0;
     void MouseLeft(bool down) {
-        if (down && !input::CanAutoClick()) return;
-        INPUT in{};
-        in.type = INPUT_MOUSE;
-        in.mi.dwFlags = down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
-        SendInput(1, &in, sizeof(in));
+        render::SetAutoFire(0, down);
         g_autoDown = down;
         g_autoT = GetTickCount();
     }
     void AutoFire(bool want) {
-        if (want && !input::CanAutoClick()) {
-            static DWORD lastBlocked = 0;
-            if (GetTickCount() - lastBlocked >= 5000) {
-                lastBlocked = GetTickCount();
-                Log("[input] auto-fire blocked: cursor outside foreground game client, focus changed, or Alt/Win held");
-            }
-            want = false;
-        }
         if (!want) { if (g_autoDown) MouseLeft(false); return; }
         if (cfg.silent.auto_fire == 1) { if (!g_autoDown) MouseLeft(true); return; } // hold: full-auto weapons
         const DWORD now = GetTickCount();                                            // click: semi-auto weapons
@@ -285,7 +273,7 @@ namespace {
 
     void Snap() {
         if (g_snapped || !g_sHave || !g_fnRotate || render::MenuOpen || farm::SuppressFeatures() || cfg.silent.method != 1) return;
-        if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) return; // read live: input::Down is a frame behind
+        if (!((GetAsyncKeyState(VK_LBUTTON) & 0x8000) || render::AutoFireHeld())) return; // read live: input::Down is a frame behind
         game::Player* l = game::Local();
         void* cam = game::CamTransform();
         game::Player live = g_sPick;
@@ -343,7 +331,7 @@ namespace {
     DWORD g_lmbT = 0;
     bool FireHeld() {
         const DWORD now = GetTickCount();
-        if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) { g_lmbT = now; return true; } // live: input::Down is a frame behind
+        if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) || render::AutoFireHeld()) { g_lmbT = now; return true; } // live: input::Down is a frame behind
         return now - g_lmbT < 200;
     }
 
@@ -604,7 +592,7 @@ void Release() { if (g_autoDown) MouseLeft(false); }
 // Game thread. Called around the local Player_move_c.Update and the local weapon's Update.
 void WrapBegin(void* self, bool weapon) {
     g_wrapDepth++;
-    if (!g_sHave || !(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) return; // cheap exit for every other update
+    if (!g_sHave || !((GetAsyncKeyState(VK_LBUTTON) & 0x8000) || render::AutoFireHeld())) return; // cheap exit for every other update
     game::Player* l = game::Local();
     if (!l) return;
     if (weapon ? self != game::LocalWeapon() : self != l->obj) return;

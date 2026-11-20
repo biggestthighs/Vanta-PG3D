@@ -47,11 +47,45 @@ namespace render {
     using BtnFn = bool(__fastcall*)(int, void*);
     static Fn4 oProcMouse = nullptr, oProcTouches = nullptr;
     static BtnFn oBtn = nullptr, oBtnDown = nullptr, oBtnUp = nullptr;
-    static void __fastcall hkProcMouse(void* s, void* a, void* b, void* c) { if (!MenuOpen) oProcMouse(s, a, b, c); }
+    static void __fastcall hkProcMouse(void* s, void* a, void* b, void* c) { if (!MenuOpen && !AutoFireHeld()) oProcMouse(s, a, b, c); }
     static void __fastcall hkProcTouches(void* s, void* a, void* b, void* c) { if (!MenuOpen) oProcTouches(s, a, b, c); }
-    static bool __fastcall hkBtn(int i, void* mi) { return !MenuOpen && oBtn(i, mi); }
-    static bool __fastcall hkBtnDown(int i, void* mi) { return !MenuOpen && oBtnDown(i, mi); }
-    static bool __fastcall hkBtnUp(int i, void* mi) { return !MenuOpen && oBtnUp(i, mi); }
+    // Automation is visible only to Unity Input. Never synthesize desktop clicks.
+    static std::atomic<bool> autoFire[2]{};
+    using FrameFn = int(*)(void*);
+    static FrameFn frameCount = nullptr;
+    static bool inputReady = false;
+    void SetAutoFire(int source, bool down) {
+        if (source >= 0 && source < 2) autoFire[source] = down && inputReady;
+    }
+    bool AutoFireHeld() {
+        return inputReady && !MenuOpen && !cfg.panic && !farm::SuppressFeatures() &&
+               Hwnd && GetForegroundWindow() == Hwnd && (autoFire[0] || autoFire[1]);
+    }
+    // All queries in the same Unity frame must see the same edges.
+    static int inputFrame = -1;
+    static bool wasHeld = false, held = false, pressed = false, released = false;
+    static void SampleFire() {
+        if (!frameCount) return;
+        const int frame = frameCount(nullptr);
+        if (frame == inputFrame) return;
+        inputFrame = frame;
+        held = AutoFireHeld();
+        pressed = held && !wasHeld;
+        released = !held && wasHeld;
+        wasHeld = held;
+    }
+    static bool __fastcall hkBtn(int i, void* mi) {
+        SampleFire();
+        return !MenuOpen && ((i == 0 && held && AutoFireHeld()) || oBtn(i, mi));
+    }
+    static bool __fastcall hkBtnDown(int i, void* mi) {
+        SampleFire();
+        return !MenuOpen && ((i == 0 && pressed && AutoFireHeld()) || oBtnDown(i, mi));
+    }
+    static bool __fastcall hkBtnUp(int i, void* mi) {
+        SampleFire();
+        return !MenuOpen && ((i == 0 && released) || oBtnUp(i, mi));
+    }
 
     static void HookMethod(void* cls, const char* name, int argc, void* detour, void** orig) {
         void* m = il2::MethodPtr(cls, name, argc);
@@ -63,10 +97,13 @@ namespace render {
         void* ui = il2::Class("UICamera");
         HookMethod(ui, "ProcessMouse", -1, &hkProcMouse, reinterpret_cast<void**>(&oProcMouse));
         HookMethod(ui, "ProcessTouches", -1, &hkProcTouches, reinterpret_cast<void**>(&oProcTouches));
+        frameCount = reinterpret_cast<FrameFn>(il2::MethodPtr(il2::Class("Time", "UnityEngine"), "get_frameCount", 0));
         void* in = il2::Class("Input", "UnityEngine");
         HookMethod(in, "GetMouseButton", 1, &hkBtn, reinterpret_cast<void**>(&oBtn));
         HookMethod(in, "GetMouseButtonDown", 1, &hkBtnDown, reinterpret_cast<void**>(&oBtnDown));
         HookMethod(in, "GetMouseButtonUp", 1, &hkBtnUp, reinterpret_cast<void**>(&oBtnUp));
+        inputReady = frameCount && oBtn && oBtnDown && oBtnUp;
+        Log("[input] game-only auto-fire ready=%d; no desktop mouse injection", inputReady);
     }
 
     LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
@@ -238,6 +275,7 @@ namespace render {
     bool Ready() { return s_init; }
 
     void Shutdown() {
+        autoFire[0] = autoFire[1] = false;
         if (s_wnd && Hwnd) { SetWindowLongPtrW(Hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(s_wnd)); s_wnd = nullptr; }
         if (s_vt && oPresent) {
             DWORD old = 0;

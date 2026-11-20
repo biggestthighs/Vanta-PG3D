@@ -234,7 +234,7 @@ namespace {
                 control.objectRoot = std::make_unique<Root>(object);
                 control.gameObjectRoot = std::make_unique<Root>(gameObject);
                 control.action = logic::Classify(control.path, control.label);
-                control.modal = logic::IsModal(control.path);
+                control.modal = logic::IsModal(control.path) || control.action == logic::Action::Reward;
                 modalPresent |= control.modal;
                 if (diagnostic) Log("[farm] button '%s' text='%s' action=%d", control.path.c_str(), control.label.c_str(), int(control.action));
                 controls.push_back(std::move(control));
@@ -437,8 +437,10 @@ void Tick() {
     const bool diagnostic = inspect.exchange(false);
     if (!ready || (!running && !diagnostic)) return;
     try {
-        const bool scanned = diagnostic || !scanAt || now - scanAt >= 750;
-        if (scanned) { Scan(diagnostic); scanAt = now; }
+        static DWORD diagnosticAt = 0;
+        const bool logButtons = diagnostic || now - diagnosticAt >= 30000;
+        const bool scanned = logButtons || !scanAt || now - scanAt >= 750;
+        if (scanned) { Scan(logButtons); scanAt = now; if (logButtons) diagnosticAt = now; }
         if (!running) { SetStatus("Visible game buttons were written to the log"); return; }
         DWORD foregroundProcess = 0;
         GetWindowThreadProcessId(GetForegroundWindow(), &foregroundProcess);
@@ -451,6 +453,7 @@ void Tick() {
         observation.replay = Has(logic::Action::Replay);
         observation.deathmatch = Has(logic::Action::Deathmatch);
         observation.classic = Has(logic::Action::Classic);
+        observation.nuclearCity = Has(logic::Action::NuclearCity);
         observation.battle = Has(logic::Action::Battle);
         observation.start = Has(logic::Action::Start);
         observation.respawn = Has(logic::Action::Respawn);

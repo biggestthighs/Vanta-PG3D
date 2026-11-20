@@ -165,7 +165,23 @@ int main() {
         pausedGate.Update(Action::None, "", false, 4600);
         Require(!pausedGate.Update(Action::Replay, replay, false, 8000), "unknown modal must invalidate an earlier Battle candidate");
         Require(pausedGate.Update(Action::Replay, replay, false, 11000), "stable replay must resume after a modal closes");
-        std::cout << "PASS: stored kills, latched cutoff, respawn, trophy/match/optional XP rewards, delayed replay, pause and button classification\n";
+        Require(Classify("ModalBannerHolder/ProgressRewardBanner/GetReward", "Get Reward") == Action::Reward,
+                "XP claim must be recognized as a reward");
+        Require(Classify("ModalBannerHolder/NewWeapons/CloseButton", "") == Action::Reward,
+                "new weapon notice close surface must dismiss the notice");
+        Require(Classify("ModalBannerHolder/NewWeapons/BuyButton", "Available for purchase") == Action::None,
+                "new weapon notice must never buy a weapon");
+        Require(Classify("ModalBannerHolder/NewWeapons/Background", "Press anywhere to close") == Action::Reward,
+                "new weapon notice background must dismiss the notice");
+        Controller navigation;
+        Observation menu;
+        menu.deathmatch = menu.nuclearCity = menu.start = true;
+        Require(navigation.Tick(menu, 3).action == Action::Deathmatch, "select Deathmatch first");
+        navigation.Clicked(Action::Deathmatch);
+        Require(navigation.Tick(menu, 3).action == Action::NuclearCity, "select Nuclear City before launch");
+        navigation.Clicked(Action::NuclearCity);
+        Require(navigation.Tick(menu, 3).action == Action::Start, "launch selected map");
+        std::cout << "PASS: stored kills, cutoff, respawn, XP/new-weapon rewards, delayed replay and Nuclear City navigation\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';

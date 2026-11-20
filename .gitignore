@@ -1,4 +1,6 @@
 /build/
+/build-session/
+/build-final/
 /dist/
 /out/
 /.vs/

@@ -2,6 +2,8 @@
 #include "common.h"
 
 namespace render {
+    void SetAutoFire(int source, bool down);
+    bool AutoFireHeld();
     bool Init();
     bool Ready();
     void Shutdown();
