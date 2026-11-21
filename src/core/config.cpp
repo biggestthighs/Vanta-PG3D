@@ -62,6 +62,19 @@ static bool LoadFile(const std::wstring& path, std::string& error) {
             cfg.farm.fov = std::clamp(farmSettings.value("fov", 360.f), 1.f, 360.f);
             cfg.farm.fire_mode = std::clamp(farmSettings.value("fire_mode", 1), 1, 2);
         }
+        cfg.world = {};
+        if (j.contains("world")) {
+            const auto& w = j.at("world");
+            cfg.world.enabled = w.value("enabled", false);
+            cfg.world.sky = w.value("sky", true);
+            cfg.world.stars = w.value("stars", true);
+            cfg.world.fog = w.value("fog", true);
+            cfg.world.particles = w.value("particles", true);
+            cfg.world.lighting = w.value("lighting", true);
+            cfg.world.palette = std::clamp(w.value("palette", 0), 0, 2);
+            cfg.world.fogDensity = std::clamp(w.value("fogDensity", .010f), .003f, .035f);
+            cfg.world.intensity = std::clamp(w.value("intensity", .55f), 0.f, 1.f);
+        }
         cfg.trig.enabled = t.value("enabled", cfg.trig.enabled);
         cfg.trig.key = t.value("key", cfg.trig.key);
         cfg.trig.hold = t.value("hold", cfg.trig.hold);
@@ -129,6 +142,10 @@ static bool SaveFile(const std::wstring& path, std::string& error) {
 #endif
     const auto& cfg = settings;
     nlohmann::json j;
+    j["world"] = {{"enabled", cfg.world.enabled}, {"sky", cfg.world.sky}, {"stars", cfg.world.stars},
+                  {"fog", cfg.world.fog}, {"particles", cfg.world.particles}, {"lighting", cfg.world.lighting},
+                  {"palette", cfg.world.palette},
+                  {"fogDensity", cfg.world.fogDensity}, {"intensity", cfg.world.intensity}};
     j["farm"] = {{"wallbang", cfg.farm.wallbang}, {"kill_limit", cfg.farm.kill_limit}, {"fov", cfg.farm.fov}, {"fire_mode", cfg.farm.fire_mode}};
     j["aim"] = { {"enabled", cfg.aim.enabled}, {"key", cfg.aim.key}, {"hold", cfg.aim.hold}, {"fov", cfg.aim.fov},
                  {"smooth", cfg.aim.smooth}, {"wall_check", cfg.aim.wall_check}, {"team_check", cfg.aim.team_check},

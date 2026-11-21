@@ -117,6 +117,18 @@ struct FarmCfg {
     int fire_mode = 1;
 };
 
+struct WorldCfg {
+    bool enabled = false;
+    bool sky = true;
+    bool stars = true;
+    bool fog = true;
+    bool particles = true;
+    bool lighting = true;
+    int palette = 0;
+    float fogDensity = .010f;
+    float intensity = .55f;
+};
+
 struct Cfg {
     AimCfg aim;
     SilentCfg silent;
@@ -125,6 +137,7 @@ struct Cfg {
     SoundCfg sound;
     MiscCfg misc;
     FarmCfg farm;
+    WorldCfg world;
     int menu_key = VK_INSERT;
     int panic_key = VK_DELETE;
     bool panic = false; // runtime only: hides every overlay and pauses aimbot/triggerbot

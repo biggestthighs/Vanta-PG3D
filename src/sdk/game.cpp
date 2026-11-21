@@ -9,6 +9,7 @@
 #include "../core/render.h"
 #include "../features/custommodel.h"
 #include "../features/farm.h"
+#include "../features/world.h"
 #endif
 
 namespace game {
@@ -772,6 +773,7 @@ namespace game {
         // camera callback: respawn/replay can destroy cameras and scene objects.
         if (oUiUpdate) reinterpret_cast<void(__fastcall*)(void*, void*)>(oUiUpdate)(self, mi);
         if (s_ready) farm::Tick();
+        if (s_ready) world::Tick(nullptr, s_hasLocal);
     }
 
     static void __fastcall hkPreCull(void* cam, void* mi) {
@@ -779,6 +781,7 @@ namespace game {
         if (!s_hasLocal || !cfg.misc.third_person || cfg.panic) custommodel::Hide();
         if (oPreCull) reinterpret_cast<void(__fastcall*)(void*, void*)>(oPreCull)(cam, mi);
         TpPreCull(cam);
+        if (s_ready) world::Tick(cam && cam == Camera() ? cam : nullptr, s_hasLocal);
     }
 
     static void __fastcall hkWeaponLate(void* self, void*) {
@@ -963,6 +966,7 @@ namespace game {
             s_hooked = true;
             Log("[game] hooks upd=%p late=%p weapon=%p", upd, late, wupd);
 #ifdef CORE_BUILD
+            world::Init(oPreCull != nullptr);
             probe::Init();
             rage::Init();
             hitsound::Init();
@@ -987,6 +991,7 @@ namespace game {
 
     void Shutdown() {
 #ifdef CORE_BUILD
+        world::RequestShutdown();
         farm::Stop();
         for (int attempt = 0; attempt < 60 && farm::Active(); ++attempt) Sleep(10);
         farm::Shutdown();
@@ -996,6 +1001,7 @@ namespace game {
         custommodel::RequestShutdown();
         for (int i = 0; i < 60 && (s_tpOffset || s_tpActive); i++) Sleep(10);
         for (int i = 0; i < 300 && !custommodel::ShutdownDone(); ++i) Sleep(10);
+        for (int i = 0; i < 50 && !world::ShutdownDone(); ++i) Sleep(10);
         rage::Release();
         hitsound::Shutdown();
 #endif

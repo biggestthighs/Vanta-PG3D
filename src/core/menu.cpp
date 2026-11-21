@@ -1,4 +1,6 @@
 ﻿#include "menu.h"
+#include "atmosphere.h"
+#include "../features/world.h"
 #include "config.h"
 #include "render.h"
 #include "../sdk/game.h"
@@ -6,6 +8,7 @@
 #include "../features/custommodel.h"
 #include "../features/farm.h"
 #include <algorithm>
+#include <array>
 
 namespace menu {
     static const char* VkName(int vk) {
@@ -66,6 +69,7 @@ namespace menu {
         ImGui::SameLine(150);
         char buf[32]{};
         snprintf(buf, sizeof(buf), "%s", VkName(*key));
+        ImGui::PushID(label);
         if (ImGui::Button(buf, { 60, 0 })) ImGui::OpenPopup(label);
         if (ImGui::BeginPopup(label)) {
             ImGui::TextUnformatted("press a key, esc cancels");
@@ -75,68 +79,79 @@ namespace menu {
             }
             ImGui::EndPopup();
         }
+        ImGui::PopID();
     }
 
-    // ---- look ----------------------------------------------------------------------------
-    static const ImVec4 kAccent{ 0.23f, 0.86f, 0.74f, 1.f };
+    static const ImVec4 kAccent{.72f,.63f,.99f,1.f};
+    static const ImVec4 kMint{.49f,.91f,.80f,1.f};
+    static ImFont *titleFont = nullptr, *labelFont = nullptr, *smallFont = nullptr;
+
+    void LoadFonts() {
+        auto& io = ImGui::GetIO();
+        io.FontDefault = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/segoeui.ttf", 16.f);
+        titleFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/segoeuib.ttf", 30.f);
+        labelFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/segoeuib.ttf", 16.f);
+        smallFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/segoeui.ttf", 13.f);
+    }
 
     void ApplyStyle() {
-        ImGuiStyle& s = ImGui::GetStyle();
-        s.WindowRounding = 12; s.ChildRounding = 9; s.FrameRounding = 7; s.GrabRounding = 7;
-        s.PopupRounding = 8; s.ScrollbarRounding = 8; s.TabRounding = 7;
-        s.WindowPadding = { 0, 0 }; s.FramePadding = { 10, 6 }; s.ItemSpacing = { 10, 10 };
-        s.WindowBorderSize = 1; s.FrameBorderSize = 0; s.ScrollbarSize = 9; s.GrabMinSize = 12;
-        ImVec4* c = s.Colors;
-        c[ImGuiCol_WindowBg]       = { 0.065f, 0.068f, 0.085f, 0.97f };
-        c[ImGuiCol_ChildBg]        = { 0.085f, 0.088f, 0.110f, 1.f };
-        c[ImGuiCol_PopupBg]        = { 0.085f, 0.088f, 0.110f, 1.f };
-        c[ImGuiCol_Border]         = { 1.f, 1.f, 1.f, 0.07f };
-        c[ImGuiCol_Text]           = { 0.92f, 0.93f, 0.96f, 1.f };
-        c[ImGuiCol_TextDisabled]   = { 0.50f, 0.52f, 0.60f, 1.f };
-        c[ImGuiCol_FrameBg]        = { 0.125f, 0.130f, 0.165f, 1.f };
-        c[ImGuiCol_FrameBgHovered] = { 0.160f, 0.168f, 0.210f, 1.f };
-        c[ImGuiCol_FrameBgActive]  = { 0.190f, 0.200f, 0.250f, 1.f };
-        c[ImGuiCol_Button]         = { 0.150f, 0.158f, 0.200f, 1.f };
-        c[ImGuiCol_ButtonHovered]  = { 0.210f, 0.225f, 0.290f, 1.f };
-        c[ImGuiCol_ButtonActive]   = { kAccent.x, kAccent.y, kAccent.z, 0.85f };
-        c[ImGuiCol_SliderGrab]       = kAccent;
-        c[ImGuiCol_SliderGrabActive] = { 0.50f, 0.64f, 1.f, 1.f };
-        c[ImGuiCol_CheckMark]      = kAccent;
-        c[ImGuiCol_Header]         = { kAccent.x, kAccent.y, kAccent.z, 0.25f };
-        c[ImGuiCol_HeaderHovered]  = { kAccent.x, kAccent.y, kAccent.z, 0.40f };
-        c[ImGuiCol_HeaderActive]   = { kAccent.x, kAccent.y, kAccent.z, 0.55f };
-        c[ImGuiCol_Separator]      = { 1.f, 1.f, 1.f, 0.07f };
-        c[ImGuiCol_ScrollbarBg]    = { 0, 0, 0, 0 };
-        c[ImGuiCol_ScrollbarGrab]  = { 0.25f, 0.27f, 0.33f, 1.f };
+        auto& s = ImGui::GetStyle();
+        s.WindowRounding = 16; s.ChildRounding = 12; s.FrameRounding = 8; s.GrabRounding = 8;
+        s.PopupRounding = 10; s.ScrollbarRounding = 8; s.TabRounding = 8;
+        s.WindowPadding = {0, 0}; s.FramePadding = {11, 7}; s.ItemSpacing = {11, 9};
+        s.WindowBorderSize = 1.f; s.ChildBorderSize = 1.f; s.FrameBorderSize = 0;
+        s.ScrollbarSize = 10; s.GrabMinSize = 11;
+        auto* c = s.Colors;
+        c[ImGuiCol_WindowBg] = {.059f,.052f,.088f,1.f};
+        c[ImGuiCol_ChildBg] = {.089f,.076f,.127f,1.f};
+        c[ImGuiCol_PopupBg] = {.092f,.078f,.139f,1.f};
+        c[ImGuiCol_Border] = {.51f,.45f,.70f,.27f};
+        c[ImGuiCol_Text] = {.94f,.92f,.98f,1.f};
+        c[ImGuiCol_TextDisabled] = {.68f,.64f,.76f,1.f};
+        c[ImGuiCol_FrameBg] = {.132f,.112f,.192f,1.f};
+        c[ImGuiCol_FrameBgHovered] = {.181f,.154f,.256f,1.f};
+        c[ImGuiCol_FrameBgActive] = {.224f,.181f,.311f,1.f};
+        c[ImGuiCol_Button] = {.165f,.135f,.236f,1.f};
+        c[ImGuiCol_ButtonHovered] = {.239f,.193f,.344f,1.f};
+        c[ImGuiCol_ButtonActive] = {.316f,.240f,.454f,1.f};
+        c[ImGuiCol_SliderGrab] = kAccent;
+        c[ImGuiCol_SliderGrabActive] = kMint;
+        c[ImGuiCol_CheckMark] = kMint;
+        c[ImGuiCol_Header] = {.255f,.186f,.383f,1.f};
+        c[ImGuiCol_HeaderHovered] = {.331f,.256f,.473f,1.f};
+        c[ImGuiCol_HeaderActive] = {.390f,.290f,.558f,1.f};
+        c[ImGuiCol_Separator] = {.49f,.41f,.67f,.22f};
+        c[ImGuiCol_ScrollbarBg] = {0,0,0,0};
+        c[ImGuiCol_ScrollbarGrab] = {.29f,.24f,.40f,1.f};
+        c[ImGuiCol_NavCursor] = kMint;
     }
 
     // animated switch; returns true when it changed
     static bool Toggle(const char* label, bool* v) {
         ImGui::PushID(label);
-        const float h = 20.f, w = 38.f;
+        const float h = 24.f, w = 43.f;
         const ImVec2 p = ImGui::GetCursorScreenPos();
-        const bool changed = ImGui::InvisibleButton("##sw", { w, h });
+        const float rowWidth = std::clamp(ImGui::GetContentRegionAvail().x, 1.f, w + 18.f + ImGui::CalcTextSize(label).x);
+        const bool changed = ImGui::InvisibleButton("##sw", {rowWidth, h}, ImGuiButtonFlags_EnableNav);
         if (changed) *v = !*v;
         float& a = *ImGui::GetStateStorage()->GetFloatRef(ImGui::GetID("a"), *v ? 1.f : 0.f);
         a += ((*v ? 1.f : 0.f) - a) * std::min(1.f, ImGui::GetIO().DeltaTime * 16.f);
         auto* dl = ImGui::GetWindowDrawList();
-        const ImVec4 off{ 0.20f, 0.21f, 0.27f, 1.f };
+        const ImVec4 off{.22f,.18f,.32f,1.f};
         ImVec4 col{ off.x + (kAccent.x - off.x) * a, off.y + (kAccent.y - off.y) * a, off.z + (kAccent.z - off.z) * a, 1.f };
         if (ImGui::IsItemHovered()) { col.x += 0.05f; col.y += 0.05f; col.z += 0.05f; }
-        dl->AddRectFilled(p, { p.x + w, p.y + h }, ImGui::ColorConvertFloat4ToU32(col), h * 0.5f);
-        dl->AddCircleFilled({ p.x + h * 0.5f + (w - h) * a, p.y + h * 0.5f }, h * 0.5f - 3.f, IM_COL32(255, 255, 255, 245));
-        ImGui::SameLine();
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (h - ImGui::GetTextLineHeight()) * 0.5f);
-        ImGui::TextUnformatted(label);
+        dl->AddRectFilled(p, { p.x + w, p.y + h }, ImGui::GetColorU32(col), h * 0.5f);
+        dl->AddCircleFilled({ p.x + h * 0.5f + (w - h) * a, p.y + h * 0.5f }, h * 0.5f - 3.f, ImGui::GetColorU32({1.f, .97f, 1.f, .96f}));
+        dl->AddText({p.x + w + 12.f, p.y + (h - ImGui::GetTextLineHeight()) * .5f}, ImGui::GetColorU32(ImGuiCol_Text), label);
         ImGui::PopID();
         return changed;
     }
 
     static void Section(const char* t) {
         ImGui::Dummy({ 0, 2 });
-        ImGui::PushStyleColor(ImGuiCol_Text, kAccent);
-        ImGui::TextUnformatted(t);
-        ImGui::PopStyleColor();
+        ImGui::PushFont(labelFont);
+        ImGui::TextColored(kAccent, "%s", t);
+        ImGui::PopFont();
         ImGui::Separator();
     }
 
@@ -429,100 +444,201 @@ namespace menu {
         Hint("END unloads. The log is pg3d_core.log next to the dll. Settings save when the menu closes.");
     }
 
+    enum Page { Overview, World, Visuals, Camera, Sounds, Aim, Trigger, Farm, Config, Settings, Debug, PageCount };
+    constexpr const char* names[] = {"Overview", "World", "Visuals", "Camera & models", "Sounds",
+        "Aim & fire", "Triggerbot", "Farm", "Config", "Settings", "Debug"};
+    static_assert(IM_ARRAYSIZE(names) == PageCount);
+
+    static void Banner(const char* heading, const char* subtitle, const WorldCfg& options, float height) {
+        const auto position = ImGui::GetCursorScreenPos();
+        const ImVec2 size{ImGui::GetContentRegionAvail().x, height};
+        auto& draw = *ImGui::GetWindowDrawList();
+        atmosphere::Preview(draw,position,size,options,ImGui::GetTime());
+        const ImVec2 right{position.x+size.x, position.y+height};
+        draw.AddRectFilledMultiColor(position,{position.x+size.x*.82f,right.y},
+            IM_COL32(15,12,29,250),IM_COL32(15,12,29,0),IM_COL32(15,12,29,0),IM_COL32(15,12,29,249));
+        draw.AddRect(position,right,IM_COL32(171,151,230,85),8.f);
+        draw.AddText(titleFont ? titleFont : ImGui::GetFont(),titleFont ? titleFont->FontSize : ImGui::GetFontSize(),
+            {position.x+21,position.y+height*.34f},IM_COL32(246,241,255,255),heading);
+        draw.AddText({position.x+22,position.y+height*.34f+36.f},IM_COL32(205,193,230,255),subtitle);
+        ImGui::Dummy(size);
+    }
+
+    static void TabWorld() {
+        auto& options = cfg.world;
+        Banner(atmosphere::Colors(options.palette).name, atmosphere::Colors(options.palette).description, options, ImGui::GetWindowHeight() < 530.f ? 116.f : 152.f);
+        Toggle("Enable atmosphere in matches", &options.enabled);
+        const float width = (ImGui::GetContentRegionAvail().x - 2.f*ImGui::GetStyle().ItemSpacing.x) / 3.f;
+        for (int i = 0; i < 3; ++i) {
+            if (i > 0) ImGui::SameLine();
+            if (options.palette == i) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+            const bool selected = options.palette == i;
+            if (ImGui::Button(atmosphere::Colors(i).name, {width, 33.f})) {
+                options.palette = i;
+                options.enabled = true;
+            }
+            if (selected) ImGui::PopStyleColor();
+        }
+        if (ImGui::BeginTable("##world-controls", 2, ImGuiTableFlags_SizingStretchSame)) {
+            ImGui::TableNextColumn();
+            Section("SCENE");
+            Toggle("Panoramic sky", &options.sky);
+            ImGui::BeginDisabled(!options.sky);
+            Toggle("Stars", &options.stars);
+            ImGui::EndDisabled();
+            Toggle("Distance fog", &options.fog);
+            ImGui::SetNextItemWidth(-1.f);
+            ImGui::SliderFloat("##fog-density", &options.fogDensity, .003f, .035f, "Fog density  %.3f",
+                ImGuiSliderFlags_AlwaysClamp);
+            ImGui::TableNextColumn();
+            Section("AMBIENCE");
+            Toggle("World particles", &options.particles);
+            Toggle("Lighting tint", &options.lighting);
+            Hint("Particles drift at different depths. Walls and props can hide them.");
+            ImGui::SetNextItemWidth(-1.f);
+            ImGui::SliderFloat("##weather-intensity", &options.intensity, 0.f, 1.f, "Effect strength  %.2f",
+                ImGuiSliderFlags_AlwaysClamp);
+            ImGui::EndTable();
+        }
+        if (ImGui::BeginTable("##world-status",2,ImGuiTableFlags_SizingStretchSame)) {
+            auto readout = [](const char* name, const char* status) {
+                ImGui::TableNextColumn();
+                ImGui::PushTextWrapPos();
+                ImGui::TextDisabled("%s  %s",name,status);
+                ImGui::PopTextWrapPos();
+            };
+            readout("Sky",world::SkyStatus());
+            readout("Particles",world::ParticleStatus());
+            readout("Fog",world::FogStatus());
+            readout("Lighting",world::LightingStatus());
+            ImGui::EndTable();
+        }
+        if (ImGui::Button("Reset atmosphere")) options = {};
+        ImGui::SameLine();
+        if (ImGui::Button("Save settings")) ConfigSave();
+    }
+
+    static void TabOverview(int& page) {
+        Banner("Make the map yours", "Sky, weather and atmosphere", cfg.world, 189.f);
+        if (ImGui::Button("Open World", {142,36})) page = World;
+        ImGui::SameLine();
+        if (ImGui::Button("Saved configs", {142,36})) page = Config;
+        Section("SESSION");
+        if (ImGui::BeginTable("##session", 3, ImGuiTableFlags_SizingStretchSame)) {
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("Game");
+            ImGui::TextUnformatted(game::Local() ? "In a match" : "Waiting");
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("World");
+            ImGui::TextUnformatted(cfg.world.enabled ? atmosphere::Colors(cfg.world.palette).name : "Map defaults");
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("Farm");
+            ImGui::TextUnformatted(farm::Active() ? "Running" : "Stopped");
+            ImGui::EndTable();
+        }
+        Section("SHORTCUTS");
+        ImGui::Text("%s   Menu", VkName(cfg.menu_key));
+        ImGui::Text("%s   Panic", VkName(cfg.panic_key));
+        ImGui::TextUnformatted("END   Unload");
+    }
+
+    static void NavItem(int& page, Page item, float width) {
+        ImGui::PushID(item);
+        const bool selected = page == item;
+        ImGui::PushStyleColor(ImGuiCol_Button, selected ? ImVec4{.234f,.175f,.344f,1.f} : ImVec4{0,0,0,0});
+        ImGui::PushStyleColor(ImGuiCol_Text, selected ? ImVec4{.96f,.93f,1,1} : ImVec4{.74f,.69f,.84f,1});
+        ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, {0,.5f});
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {18,4});
+        const auto p = ImGui::GetCursorScreenPos();
+        if (ImGui::Button(names[item], {width,29})) page = item;
+        if (selected) ImGui::GetWindowDrawList()->AddRectFilled({p.x+4,p.y+7},{p.x+7,p.y+22},ImGui::GetColorU32(kAccent),2);
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(2);
+        ImGui::PopID();
+    }
+
+    static void NavGroup(const char* heading, int& page, std::initializer_list<Page> entries) {
+        ImGui::SetCursorPosX(17);
+        ImGui::PushFont(smallFont);
+        ImGui::TextDisabled("%s", heading);
+        ImGui::PopFont();
+        for (Page entry : entries) {
+            ImGui::SetCursorPosX(9);
+            NavItem(page,entry,150);
+        }
+        ImGui::Dummy({0,5});
+    }
+
     void Render() {
-        static int tab = 0;
-        static const char* names[] = { "Overview", "Aim & fire", "Triggerbot", "Visuals", "Camera & models", "Sounds", "Farm", "Debug", "Config", "Settings" };
-
-        ImGui::SetNextWindowSize({ 880, 650 }, ImGuiCond_Once);
-        ImGui::SetNextWindowSizeConstraints({720, 500}, {1400, 1000});
-        ImGui::Begin("##vanta", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar);
-
-        // header: draggable, title left, live status right
-        const ImVec2 wp = ImGui::GetWindowPos();
-        const float ww = ImGui::GetWindowWidth();
-        auto* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(wp, { wp.x + ww, wp.y + 48 }, IM_COL32(18, 19, 25, 255), 12, ImDrawFlags_RoundCornersTop);
-        dl->AddRectFilled({ wp.x, wp.y + 47 }, { wp.x + ww, wp.y + 48 }, IM_COL32(255, 255, 255, 14));
-        dl->AddText({ wp.x + 20, wp.y + 15 }, ImGui::ColorConvertFloat4ToU32(kAccent), "VANTA");
-        dl->AddText({ wp.x + 85, wp.y + 15 }, IM_COL32(150, 154, 170, 255), "0.1 preview");
-        char st[96]{};
-        if (!game::Ready()) {
-            snprintf(st, sizeof(st), "not initialised - see pg3d_core.log");
-        } else {
-            const auto snap = game::Snapshot();
-            int en = 0;
-            for (auto& p : snap) if (!p.local && !p.ally && p.alive) en++;
-            snprintf(st, sizeof(st), "%d players   %d enemies   %s", static_cast<int>(snap.size()), en,
-                     game::Local() ? "in match" : "waiting for match");
+        static int page = Overview;
+        const auto screen = ImGui::GetIO().DisplaySize;
+        const ImVec2 maximum{std::max(400.f,screen.x-24.f), std::max(320.f,screen.y-24.f)};
+        const ImVec2 minimum{std::min(682.f,maximum.x),std::min(455.f,maximum.y)};
+        ImGui::SetNextWindowSize({std::min(939.f, maximum.x),std::min(686.f, maximum.y)},ImGuiCond_Once);
+        ImGui::SetNextWindowPos({screen.x*.5f,screen.y*.5f},ImGuiCond_Once,{.5f,.5f});
+        ImGui::SetNextWindowSizeConstraints(minimum,maximum);
+        if (!ImGui::Begin("##vanta",nullptr,ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar)) {
+            ImGui::End();
+            return;
         }
-        const ImVec2 ts = ImGui::CalcTextSize(st);
-        dl->AddText({ wp.x + ww - ts.x - 20, wp.y + 15 }, IM_COL32(150, 154, 170, 255), st);
-        if (ImGui::IsMouseHoveringRect(wp, { wp.x + ww, wp.y + 48 }) && ImGui::IsMouseDragging(0) &&
-            !ImGui::IsAnyItemActive())
-            ImGui::SetWindowPos({ wp.x + ImGui::GetIO().MouseDelta.x, wp.y + ImGui::GetIO().MouseDelta.y });
-        ImGui::SetCursorPos({ 0, 48 });
-
-        // sidebar
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, { 0.075f, 0.078f, 0.098f, 1.f });
-        ImGui::BeginChild("##side", { 174, 0 }, false);
-        ImGui::SetCursorPos({ 12, 16 });
-        for (int i = 0; i < 10; i++) {
-            ImGui::SetCursorPosX(12);
-            const bool sel = tab == i;
-            const ImVec2 p = ImGui::GetCursorScreenPos();
-            ImGui::PushStyleColor(ImGuiCol_Button, sel ? ImVec4{ kAccent.x, kAccent.y, kAccent.z, 0.22f } : ImVec4{ 0, 0, 0, 0 });
-            ImGui::PushStyleColor(ImGuiCol_Text, sel ? ImVec4{ 1, 1, 1, 1 } : ImVec4{ 0.62f, 0.65f, 0.74f, 1.f });
-            ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, { 0.f, 0.5f });
-            if (ImGui::Button(names[i], { 150, 38 })) tab = i;
-            ImGui::PopStyleVar();
-            ImGui::PopStyleColor(2);
-            if (sel) ImGui::GetWindowDrawList()->AddRectFilled({ p.x, p.y + 7 }, { p.x + 3, p.y + 27 }, ImGui::ColorConvertFloat4ToU32(kAccent), 2);
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 4);
+        const auto p = ImGui::GetWindowPos();
+        const float width = ImGui::GetWindowWidth();
+        auto& draw = *ImGui::GetWindowDrawList();
+        draw.AddRectFilled(p,{p.x+width,p.y+65},IM_COL32(26,21,42,255),16,ImDrawFlags_RoundCornersTop);
+        draw.AddLine({p.x,p.y+65},{p.x+width,p.y+65},IM_COL32(132,108,185,79));
+        const ImVec2 mark{p.x+34,p.y+33};
+        draw.AddCircleFilled(mark,15,IM_COL32(83,58,128,255),24);
+        draw.AddPolyline(std::array<ImVec2,3>{{{mark.x-6,mark.y-4},{mark.x,mark.y+5},{mark.x+6,mark.y-4}}}.data(),
+            3,IM_COL32(226,208,255,255),0,2.1f);
+        ImGui::SetCursorPos({58,15});
+        ImGui::PushFont(titleFont);
+        ImGui::TextUnformatted("Vanta");
+        ImGui::PopFont();
+        ImGui::SetCursorPos({width-120,17});
+        if (ImGui::Button("Hide menu",{101,31})) {
+            ConfigSave();
+            render::MenuOpen = false;
         }
+        if (ImGui::IsMouseHoveringRect(p,{p.x+width-136,p.y+65}) && ImGui::IsMouseDragging(0) && !ImGui::IsAnyItemActive())
+            ImGui::SetWindowPos({p.x+ImGui::GetIO().MouseDelta.x,p.y+ImGui::GetIO().MouseDelta.y});
+        ImGui::SetCursorPos({0,66.f});
+
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,{8,1});
+        ImGui::PushStyleColor(ImGuiCol_ChildBg,{.078f,.065f,.116f,1});
+        ImGui::BeginChild("##navigation",{174,0},0,ImGuiWindowFlags_NoSavedSettings);
+        ImGui::Dummy({0,13});
+        NavGroup("PLAY",page,{Overview,World,Visuals,Camera,Sounds});
+        NavGroup("CONTROLS",page,{Aim,Trigger,Farm});
+        NavGroup("PREFERENCES",page,{Config,Settings,Debug});
         ImGui::EndChild();
         ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
 
-        // content
-        ImGui::SameLine(0, 0);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, { 0, 0, 0, 0 });
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, { 22, 16 });
-        ImGui::BeginChild("##content", { 0, 0 }, false, ImGuiWindowFlags_AlwaysUseWindowPadding);
-        ImGui::TextColored(kAccent, "%s", names[tab]);
+        ImGui::SameLine(0,0);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{24,17});
+        ImGui::PushStyleColor(ImGuiCol_ChildBg,{0,0,0,0});
+        ImGui::BeginChild(page+200,{0,0},ImGuiChildFlags_AlwaysUseWindowPadding);
+        ImGui::PushFont(titleFont);
+        ImGui::TextUnformatted(names[page]);
+        ImGui::PopFont();
         ImGui::Separator();
         ImGui::Spacing();
-        switch (tab) {
-        case 0:
-            Section("YOUR SESSION");
-            ImGui::TextWrapped("Welcome to Vanta. Pick a section on the left, or start with a shortcut below.");
-            ImGui::Spacing();
-            ImGui::Text("Game connection: %s", game::Ready() ? "ready" : "initializing");
-            ImGui::Text("Player: %s", game::Local() ? "in a match" : "waiting for a match");
-            ImGui::Text("Farm: %s", farm::Active() ? "running" : "stopped");
-            Section("QUICK START");
-            if (ImGui::Button("Set up Farm", {190, 38})) tab = 6;
-            ImGui::SameLine();
-            if (ImGui::Button("Camera & models", {190, 38})) tab = 4;
-            Hint("Farm starts only when you press Start farm. Close this menu and keep the game focused while it runs.");
-            Section("CONTROLS");
-            ImGui::Text("%s  Open / close menu", VkName(cfg.menu_key));
-            ImGui::Text("%s  Pause features and hide overlays", VkName(cfg.panic_key));
-            ImGui::TextUnformatted("END  Unload Vanta");
-            Hint("Settings save when the menu closes. Camera models are experimental and use static meshes.");
-            break;
-        case 1: TabAimbot(); break;
-        case 2: TabTrigger(); break;
-        case 3: TabVisuals(); break;
-        case 4: TabMisc(); break;
-        case 5: TabSounds(); break;
-        case 6: TabFarm(); break;
-        case 7: TabDebug(); break;
-        case 8: TabConfig(); break;
-        default: TabSettings(); break;
+        switch (page) {
+        case Overview: TabOverview(page); break;
+        case World: TabWorld(); break;
+        case Visuals: TabVisuals(); break;
+        case Camera: TabMisc(); break;
+        case Sounds: TabSounds(); break;
+        case Aim: TabAimbot(); break;
+        case Trigger: TabTrigger(); break;
+        case Farm: TabFarm(); break;
+        case Config: TabConfig(); break;
+        case Settings: TabSettings(); break;
+        case Debug: TabDebug(); break;
         }
         ImGui::EndChild();
-        ImGui::PopStyleVar();
         ImGui::PopStyleColor();
-
+        ImGui::PopStyleVar();
         ImGui::End();
     }
 }

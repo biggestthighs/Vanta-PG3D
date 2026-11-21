@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Vanta VERSION 0.1.13 LANGUAGES C CXX)
+project(Vanta VERSION 0.1.15 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -53,9 +53,11 @@ add_library(pg3d_core SHARED
   ${CORE_SRC}
   src/core/render.cpp
   src/core/menu.cpp
+  src/core/atmosphere.cpp
   src/features/aimbot.cpp
   src/features/triggerbot.cpp
   src/features/visuals.cpp
+  src/features/world.cpp
   src/features/misc.cpp
   src/features/hitsound.cpp
   src/features/farm.cpp

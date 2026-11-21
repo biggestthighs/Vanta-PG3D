@@ -349,12 +349,14 @@ namespace {
         combat = false;
         rage::Release();
         const auto farmSettings = cfg.farm;
+        const auto worldSettings = cfg.world;
         const bool panic = cfg.panic;
         {
             std::lock_guard<std::mutex> lock(profileMutex);
             cfg = profile;
         }
         cfg.farm = farmSettings;
+        cfg.world = worldSettings;
         cfg.panic = panic;
         running = false;
         profileCombat = false;
@@ -475,9 +477,11 @@ Status GetStatus() { std::lock_guard<std::mutex> lock(statusMutex); return statu
 void SettingsToSave(Cfg& settings) {
     if (!running) return;
     const auto farmSettings = settings.farm;
+    const auto worldSettings = settings.world;
     std::lock_guard<std::mutex> lock(profileMutex);
     settings = profile;
     settings.farm = farmSettings;
+    settings.world = worldSettings;
 }
 void Shutdown() { command = 0; RestoreProfile(false); controls.clear(); SetStatus("Stopped"); }
 

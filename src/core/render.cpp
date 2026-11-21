@@ -4,6 +4,7 @@
 #include "menu.h"
 #include "../sdk/game.h"
 #include "../features/features.h"
+#include "../features/world.h"
 #include "../sdk/il2cpp.h"
 #include "MinHook.h"
 #include "backends/imgui_impl_dx11.h"
@@ -107,9 +108,8 @@ namespace render {
                 io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
                 io.IniFilename = nullptr;
                 ImGui::StyleColorsDark();
+                menu::LoadFonts();
                 menu::ApplyStyle();
-                // Segoe UI reads far better than ImGui's built-in bitmap-ish font; keep the default if absent
-                if (ImFont* f = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 17.f)) io.FontDefault = f;
                 ImGui_ImplWin32_Init(Hwnd);
                 ImGui_ImplDX11_Init(s_dev, s_ctx);
                 s_imgui = true;
@@ -156,6 +156,7 @@ namespace render {
             // triggerbot run here because this is the only genuine once-per-frame hook, and
             // they need nothing but W2S off-thread.
             if (cfg.panic) MenuOpen = false;
+            world::Publish(cfg.world, cfg.panic);
             if (game::Ready()) triggerbot::Run();
             if (game::Ready() && !cfg.panic && !farm::SuppressFeatures()) {
                 hitsound::Frame();

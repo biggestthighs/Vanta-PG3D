@@ -3,5 +3,6 @@
 namespace menu {
     void Render();
     void ApplyStyle();
+    void LoadFonts();
 }
 

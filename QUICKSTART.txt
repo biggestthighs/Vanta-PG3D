@@ -1,4 +1,4 @@
-VANTA v0.1.13 preview - Windows x64
+VANTA v0.1.15 preview - Windows x64
 
 Extract the ENTIRE zip first. Keep Vanta.exe, pg3d_core.dll, offsets.json
 and the models folder together.
@@ -14,3 +14,7 @@ Keep the game focused. Stop farm restores your previous settings.
 Custom models are experimental. See README.md for known limitations.
 
 Source code is in source/. No developer tools are needed to run Vanta.
+
+Open World in the in-game menu to preview and enable Aurora, Ember or Glacier.
+Particles render in the scene. Map support for sky, fog and lighting varies.
+The World tab shows the status of each effect.
