@@ -2,11 +2,11 @@
 
 A Windows x64 client for Pixel Gun 3D PC Edition, with a portable launcher, in-game controls and Deathmatch automation.
 
-**v0.1.15 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
+**v0.1.16 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
 
 ## Download and run
 
-Get `Vanta-v0.1.15-win64-with-source.zip` and **extract the entire ZIP** into a writable folder.
+Get `Vanta-v0.1.16-win64-with-source.zip` and **extract the entire ZIP** into a writable folder.
 
 1. Start Pixel Gun 3D and wait for the main menu.
 2. Open `Vanta.exe` and click **Load Vanta**.
@@ -27,7 +27,7 @@ The menu and panic keys can be changed in Settings. Closing the launcher does no
 In v0.1.13, automatic firing uses the earlier Windows mouse press/release implementation. The experimental Unity input replacement and cursor-location gate remain rolled back. Gun notices with a collider-only background are now recognized by their explicit ?Press anywhere to close? prompt, even when the same panel also says ?Available for purchase?. Farm retains Deathmatch/Nuclear City navigation, XP claims, new-weapon dismissal, reward priority and delayed replay.
 
 - **Overview:** session status, shortcuts and an atmosphere preview.
-- **World:** Aurora, Ember and Glacier looks with cloudy panoramas, optional stars, 3D particles, distance fog and lighting tint. Click a look to enable it. The particles render in world space, and the sky uses the map's background camera when supported. Geometry-based skies, baked lighting and some materials may limit the effect. The World tab shows each effect's status, and the atmosphere saves with your configs.
+- **World:** Aurora, Ember and Glacier looks with vivid cloudy skies, optional stars, denser 3D particles, distance fog and stronger lighting. A textured sky dome provides clouds and stars when the panoramic shader is unavailable. Click a look to enable it. The particles render in world space, and the sky uses the map's background camera when supported. Geometry-based skies, baked lighting and some materials may limit the effect. The World tab shows each effect's status, and the atmosphere saves with your configs.
 - **Aim & fire:** aim assistance, silent aim, target cone, automatic firing, and experimental rapid fire. Rapid fire has a saved 1x?50x requested speed multiplier (2x defaults to half the normal delay). It hooks a verified effective cooldown getter for the local weapon, including calls outside Update; it is paused during Farm. Its call/reduction counters and returned delay are logged every three seconds while enabled. Actual firing/damage rates require in-game verification and may be limited by the server.
 - **Triggerbot:** fire when a target crosses the selected gate.
 - **Visuals:** player boxes, labels, radar and colors.

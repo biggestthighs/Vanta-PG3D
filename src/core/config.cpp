@@ -72,8 +72,8 @@ static bool LoadFile(const std::wstring& path, std::string& error) {
             cfg.world.particles = w.value("particles", true);
             cfg.world.lighting = w.value("lighting", true);
             cfg.world.palette = std::clamp(w.value("palette", 0), 0, 2);
-            cfg.world.fogDensity = std::clamp(w.value("fogDensity", .010f), .003f, .035f);
-            cfg.world.intensity = std::clamp(w.value("intensity", .55f), 0.f, 1.f);
+            cfg.world.fogDensity = std::clamp(w.value("fogDensity", .028f), .003f, .070f);
+            cfg.world.intensity = std::clamp(w.value("intensity", .90f), 0.f, 1.f);
         }
         cfg.trig.enabled = t.value("enabled", cfg.trig.enabled);
         cfg.trig.key = t.value("key", cfg.trig.key);

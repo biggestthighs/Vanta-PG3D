@@ -474,8 +474,10 @@ namespace menu {
             if (options.palette == i) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
             const bool selected = options.palette == i;
             if (ImGui::Button(atmosphere::Colors(i).name, {width, 33.f})) {
+                options = {};
                 options.palette = i;
                 options.enabled = true;
+                options.fogDensity = i == 2 ? .040f : .028f;
             }
             if (selected) ImGui::PopStyleColor();
         }
@@ -488,7 +490,7 @@ namespace menu {
             ImGui::EndDisabled();
             Toggle("Distance fog", &options.fog);
             ImGui::SetNextItemWidth(-1.f);
-            ImGui::SliderFloat("##fog-density", &options.fogDensity, .003f, .035f, "Fog density  %.3f",
+            ImGui::SliderFloat("##fog-density", &options.fogDensity, .003f, .070f, "Fog density  %.3f",
                 ImGuiSliderFlags_AlwaysClamp);
             ImGui::TableNextColumn();
             Section("AMBIENCE");

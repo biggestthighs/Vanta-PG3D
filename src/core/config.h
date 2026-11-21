@@ -125,8 +125,8 @@ struct WorldCfg {
     bool particles = true;
     bool lighting = true;
     int palette = 0;
-    float fogDensity = .010f;
-    float intensity = .55f;
+    float fogDensity = .028f;
+    float intensity = .90f;
 };
 
 struct Cfg {

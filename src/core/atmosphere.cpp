@@ -6,11 +6,11 @@ namespace {
     constexpr float Pi = 3.14159265f;
     constexpr Palette palettes[] = {
         {"Aurora", "Violet dusk, mint aurora and drifting sparks",
-            {.037f,.029f,.112f}, {.35f,.29f,.59f}, {.33f,.96f,.79f}, {.38f,.33f,.61f}, {.66f,1.f,.88f}},
+            {.045f,.012f,.16f}, {.48f,.18f,.72f}, {.12f,1.f,.72f}, {.36f,.16f,.58f}, {.55f,1.f,.85f}},
         {"Ember", "Copper light, a warm horizon and rising embers",
-            {.130f,.037f,.084f}, {.77f,.36f,.22f}, {1.f,.55f,.28f}, {.66f,.30f,.28f}, {1.f,.73f,.39f}},
+            {.16f,.018f,.035f}, {1.f,.30f,.085f}, {1.f,.64f,.12f}, {.70f,.19f,.09f}, {1.f,.78f,.30f}},
         {"Glacier", "Blue hour, ice crystals and silver haze",
-            {.026f,.082f,.19f}, {.32f,.59f,.71f}, {.53f,.84f,1.f}, {.35f,.57f,.70f}, {.77f,.92f,1.f}},
+            {.012f,.055f,.21f}, {.18f,.65f,.92f}, {.30f,.94f,1.f}, {.19f,.48f,.72f}, {.68f,.94f,1.f}},
     };
     float Unit(float v) { return std::clamp(v, 0.f, 1.f); }
     float Wave(float x) { return .5f + .5f * std::sin(x); }
@@ -75,16 +75,16 @@ void Panorama(std::vector<uint8_t>& pixels, int width, int height, int index, bo
             if (elevation > .03f) {
                 const float a = (elevation - low) * 15.f;
                 const float b = (elevation - high) * 11.f;
-                const float glow = std::exp(-a*a) * .20f + std::exp(-b*b) * .10f;
+                const float glow = std::exp(-a*a) * .78f + std::exp(-b*b) * .48f;
                 color = Mix(color, palette.aurora, glow * folds);
                 const float cloud = Clouds(u,elevation,index);
                 color = Mix(color,Mix(palette.zenith,palette.horizon,.36f+.32f*cloud),
-                            cloud*(index == 2 ? .94f : .60f));
+                            cloud*(index == 2 ? .98f : .82f));
             }
             const float moonY = elevation - .45f;
             const float moonDistance = std::sqrt(moonX * moonX + moonY * moonY);
-            color = Mix(color, palette.sparks, Unit(1.f - moonDistance / .115f) * .09f);
-            if (moonDistance < .027f) color = Mix(color, palette.sparks, Unit((.027f - moonDistance) * 410.f) * .84f);
+            color = Mix(color, palette.sparks, Unit(1.f - moonDistance / .17f) * .25f);
+            if (moonDistance < .041f) color = Mix(color, palette.sparks, Unit((.041f - moonDistance) * 410.f) * .84f);
             auto* px = &pixels[(static_cast<size_t>(y) * width + x) * 4];
             px[0] = static_cast<uint8_t>(Unit(color.r) * 255.f);
             px[1] = static_cast<uint8_t>(Unit(color.g) * 255.f);
@@ -93,7 +93,7 @@ void Panorama(std::vector<uint8_t>& pixels, int width, int height, int index, bo
         }
     }
     if (!stars) return;
-    for (unsigned i = 1; i <= 650; ++i) {
+    for (unsigned i = 1; i <= 1800; ++i) {
         const int x = int(Sample(i * 13) * width);
         const int y = int((.55f + Sample(i * 17) * .43f) * height);
         const float cloud = Clouds(float(x)/width,(float(y)/(height-1)-.5f)*2.f,index);

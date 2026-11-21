@@ -21,10 +21,11 @@ namespace {
 
     void *activeScene, *getSky, *setSky, *getFog, *setFog, *getMode, *setMode;
     void *getDensity, *setDensity, *getColor, *setColor;
-    void *findShader, *destroy, *matType, *matCtor, *matSetTexture, *matSetColor;
+    void *findShader, *destroy, *matType, *matCtor, *matSetTexture, *matSetColor, *matQueue;
     void *texType, *byteType, *texCtor, *texLoad, *texApply;
     void *objectAlive, *cameraGetClear, *cameraSetClear, *getComponent, *skyboxType;
-    void *allCameras, *cameraDepth, *cameraDisplay, *cameraTarget, *cameraRect, *cameraMask;
+    void *allCameras, *cameraDepth, *cameraDisplay, *cameraTarget, *cameraRect, *cameraMask, *cameraFar;
+    void *goTransform, *transformPosition;
     void *getLocalSky, *setLocalSky;
     void *getAmbientMode, *setAmbientMode, *getSun, *getSunColor, *setSunColor;
     std::array<void*,3> getAmbient{}, setAmbient{};
@@ -68,6 +69,12 @@ namespace {
     ULONGLONG nextCameraScan = 0;
     Object particleRoot, particleMesh, particleMaterial, particleTexture, particleRenderer, vertices, colors;
     Object sceneSun;
+    Object domeRoot, domeMesh, domeMaterial, domeRenderer;
+    float domeRadius = 0.f;
+    bool domeVisible = false;
+    void HideSkyDome();
+    void ClearSkyDome();
+    void ApplySkyDome(void* camera);
     std::optional<int> previousClear;
     bool assignedLocalSky = false, particlesVisible = false;
     int particleLayer = -1;
@@ -77,7 +84,7 @@ namespace {
     std::optional<Fog> previousFog, appliedFog;
     struct LightState { int mode; std::array<Col,3> ambient; Col sun; };
     std::optional<LightState> previousLight, appliedLight;
-    constexpr int PerCell = 22;
+    constexpr int PerCell = 88;
     constexpr int ParticleCount = 27 * PerCell;
 
     void* Class(const char* ns, const char* name) {
@@ -155,18 +162,10 @@ namespace {
             if (!SameColor(current.color, appliedFog->color)) previousFog->color = current.color;
         }
         const auto color = atmosphere::Colors(options.palette).mist;
-        // Keep any stronger exponential fog already present in the scene.
         constexpr int exponential = 2;
         float density = options.fogDensity;
-        if (previousFog->enabled && previousFog->mode != exponential) {
-            // Retain the stock visibility falloff on maps with another fog mode.
-            appliedFog = current;
-            appliedFog->color = color;
-            if (!SameColor(current.color, color)) Set(setColor, color);
-            fogStatus = "Active / map fog tinted";
-            return;
-        }
-        if (previousFog->enabled) density = std::max(density, previousFog->density);
+        if (previousFog->enabled && previousFog->mode == exponential)
+            density = std::max(density, previousFog->density);
         appliedFog = Fog{true, exponential, density, color};
         if (current.mode != exponential) Set(setMode, exponential);
         if (current.density != density) Set(setDensity, density);
@@ -187,6 +186,7 @@ namespace {
         cameraRef.Clear();
     }
     void RestoreSky() {
+        HideSkyDome();
         RestoreCameraSky();
         if (assignedSky && Call(getSky) == material.value) Call(setSky, nullptr, {previousSky.value});
         assignedSky = false;
@@ -216,6 +216,7 @@ namespace {
     }
     void MakeSky(const WorldCfg& options, int key) {
         RestoreSky();
+        ClearSkyDome();
         Destroy(material);
         Destroy(texture);
         materialKey = -1;
@@ -229,11 +230,11 @@ namespace {
         if (!material.value) throw std::runtime_error("sky material allocation failed");
         Call(matCtor, material.value, {shader.value});
         Object property;
+        constexpr int width = 2048, height = 1024;
+        std::vector<uint8_t> pixels;
+        atmosphere::Panorama(pixels, width, height, options.palette, options.stars);
+        UploadTexture(texture,width,height,pixels);
         if (panoramic) {
-            constexpr int width = 1024, height = 512;
-            std::vector<uint8_t> pixels;
-            atmosphere::Panorama(pixels, width, height, options.palette, options.stars);
-            UploadTexture(texture,width,height,pixels);
             property.Set(il2::api.string_new("_MainTex"));
             Call(matSetTexture, material.value, {property.value, texture.value});
         } else {
@@ -291,7 +292,7 @@ namespace {
     }
     void ApplySky(const WorldCfg& options, void* mainCamera, ULONGLONG now) {
         const int key = options.palette * 2 + options.stars;
-        if (materialKey < 0 || materialKey / 2 != key / 2 || (panoramic && materialKey != key))
+        if (materialKey != key)
             MakeSky(options, key);
         auto* camera = SkyCamera(mainCamera,now);
         if (cameraRef.value && cameraRef.value != camera) RestoreSky();
@@ -324,7 +325,9 @@ namespace {
             skyStatus = "Map background camera not identified";
             return;
         }
-        skyStatus = panoramic ? "Applied / panoramic sky" : "Applied / sky tint (stars unavailable)";
+        if (!panoramic) ApplySkyDome(mainCamera);
+        skyStatus = panoramic ? "Applied / panoramic sky" :
+            domeVisible ? "Applied / textured sky dome" : "Applied / sky tint (dome unavailable)";
     }
 
     Col Tint(Col stock, Col shade, float strength) {
@@ -377,13 +380,18 @@ namespace {
         appliedLight->mode = gradientLighting;
         const std::array<Col,3> tint{palette.sparks,palette.horizon,palette.mist};
         for (size_t i=0; i<3; ++i) {
-            appliedLight->ambient[i] = Tint(previousLight->ambient[i],tint[i],amount*.72f);
+            const auto stock = previousLight->ambient[i];
+            const float blend = amount * .92f;
+            const float brightness = i == 0 ? .72f : i == 1 ? .46f : .20f;
+            appliedLight->ambient[i] = {std::lerp(stock.r,tint[i].r*brightness,blend),
+                std::lerp(stock.g,tint[i].g*brightness,blend),
+                std::lerp(stock.b,tint[i].b*brightness,blend),stock.a};
             if (!SameColor(current.ambient[i],appliedLight->ambient[i]))
                 Set(setAmbient[i],appliedLight->ambient[i]);
         }
         if (current.mode != gradientLighting) Set(setAmbientMode,gradientLighting);
         if (Alive(sceneSun)) {
-            appliedLight->sun = Tint(previousLight->sun,palette.horizon,amount*.65f);
+            appliedLight->sun = Tint(previousLight->sun,palette.horizon,amount*.94f);
             if (!SameColor(current.sun,appliedLight->sun)) Set(setSunColor,appliedLight->sun,sceneSun.value);
         }
         lightStatus = "Applied / live scene lighting";
@@ -409,6 +417,87 @@ namespace {
         Destroy(particleTexture);
         vertices.Clear();
         colors.Clear();
+    }
+    void HideSkyDome() {
+        if (domeVisible && Alive(domeRenderer)) Set(rendererEnabled,false,domeRenderer.value);
+        domeVisible = false;
+    }
+    void ClearSkyDome() {
+        HideSkyDome();
+        domeRenderer.Clear();
+        Destroy(domeRoot);
+        Destroy(domeMesh);
+        Destroy(domeMaterial);
+        domeRadius = 0.f;
+    }
+    void ApplySkyDome(void* camera) {
+        if (!nativeParticles || !cameraFar || !goTransform || !transformPosition || !cameraMask || !goLayer || !matQueue)
+            return;
+        const float farClip = Get<float>(cameraFar,camera);
+        const auto mask = Get<uint32_t>(cameraMask,camera);
+        if (!std::isfinite(farClip) || farClip < 2.f || !mask) { HideSkyDome(); return; }
+        const float radius = farClip * .90f;
+        if (!Alive(domeRoot) || !Alive(domeRenderer) || domeRadius != radius) {
+            ClearSkyDome();
+            Object shader, name;
+            shader.Set(Shader("Sprites/Default"));
+            if (!shader.value) return;
+            name.Set(il2::api.string_new("Vanta Atmosphere Sky"));
+            domeRoot.Set(il2::api.object_new(goType));
+            domeMesh.Set(il2::api.object_new(meshType));
+            domeMaterial.Set(il2::api.object_new(matType));
+            Call(goCtor,domeRoot.value,{name.value});
+            Object filter;
+            filter.Set(Call(goAdd,domeRoot.value,{filterType}));
+            domeRenderer.Set(Call(goAdd,domeRoot.value,{rendererType}));
+            Set(rendererEnabled,false,domeRenderer.value);
+            if (rendererShadows) Set(rendererShadows,0,domeRenderer.value);
+            if (rendererReceive) Set(rendererReceive,false,domeRenderer.value);
+            Call(meshCtor,domeMesh.value);
+            constexpr int segments = 96, rings = 48;
+            constexpr int count = (segments+1)*(rings+1);
+            Object positions, uv, triangles, tint;
+            auto* points = Array<Vec3>(positions,vecType,count);
+            auto* texcoords = Array<ImVec2>(uv,uvType,count);
+            auto* shades = Array<Col>(tint,colorType,count);
+            auto* indices = Array<int>(triangles,intType,segments*rings*6);
+            for (int y=0; y<=rings; ++y) for (int x=0; x<=segments; ++x) {
+                const float u=float(x)/segments, v=float(y)/rings;
+                const float latitude=(v-.5f)*3.14159265f;
+                const float angle=u*6.2831853f;
+                const int i=y*(segments+1)+x;
+                points[i]={radius*std::cos(latitude)*std::sin(angle),radius*std::sin(latitude),
+                    radius*std::cos(latitude)*std::cos(angle)};
+                texcoords[i]={u,v};
+                shades[i]={1,1,1,1};
+            }
+            int index=0;
+            for (int y=0; y<rings; ++y) for (int x=0; x<segments; ++x) {
+                const int a=y*(segments+1)+x, b=a+segments+1;
+                indices[index++]=a; indices[index++]=b; indices[index++]=a+1;
+                indices[index++]=a+1; indices[index++]=b; indices[index++]=b+1;
+            }
+            Call(meshVertices,domeMesh.value,{positions.value});
+            Call(meshUv,domeMesh.value,{uv.value});
+            Call(meshColors,domeMesh.value,{tint.value});
+            Call(meshIndices,domeMesh.value,{triangles.value});
+            Call(meshBounds,domeMesh.value);
+            Call(matCtor,domeMaterial.value,{shader.value});
+            // Draw after opaque map geometry and before transparent world particles.
+            Set(matQueue,2490,domeMaterial.value);
+            name.Set(il2::api.string_new("_MainTex"));
+            Call(matSetTexture,domeMaterial.value,{name.value,texture.value});
+            Call(filterMesh,filter.value,{domeMesh.value});
+            Call(rendererMaterial,domeRenderer.value,{domeMaterial.value});
+            domeRadius = radius;
+            Log("[world] textured sky dome enabled (panoramic shader unavailable)");
+        }
+        Set(goLayer,int(std::countr_zero(mask)),domeRoot.value);
+        auto* transform=Call(goTransform,domeRoot.value);
+        const auto position=game::CamPos();
+        Set(transformPosition,position,transform);
+        Set(rendererEnabled,true,domeRenderer.value);
+        domeVisible = true;
     }
     void MakeParticles() {
         ClearParticles();
@@ -520,10 +609,10 @@ namespace {
                                     (y+fall)*cell,
                                     (z+Random(s+2))*cell+.45f*std::cos(phase*.83f)};
                 const auto distance=Dist(position,cam);
-                const float alpha = options.intensity * (.4f+.6f*Random(s+5)) *
-                    std::clamp((distance-.72f)*.9f,0.f,1.f) * std::clamp((18.f-distance)/9.f,0.f,1.f) *
+                const float alpha = options.intensity * (.65f+.35f*Random(s+5)) *
+                    std::clamp((distance-.72f)*.9f,0.f,1.f) * std::clamp((30.f-distance)/14.f,0.f,1.f) *
                     std::clamp(std::min(fall,1.f-fall)*15.f,0.f,1.f);
-                const float radius = .030f+.110f*Random(s+3);
+                const float radius = (.055f+.20f*Random(s+3)) * (.65f+.55f*options.intensity);
                 const float u[4]={-radius,-radius,radius,radius};
                 const float v[4]={-radius,radius,radius,-radius};
                 for (int k=0; k<4; ++k) {
@@ -563,6 +652,7 @@ void Init(bool cameraCallbackReady) {
         getDensity && setDensity && getColor && setColor;
     getSky = Method(settings,"get_skybox"); setSky = Method(settings,"set_skybox",{"Material"});
     matType = Class("UnityEngine","Material"); texType = Class("UnityEngine","Texture2D");
+    matQueue = Method(matType,"set_renderQueue",{"Int32"});
     byteType = Class("System","Byte");
     findShader = Method(Class("UnityEngine","Shader"), "Find", {"String"});
     destroy = Method(Class("UnityEngine","Object"), "Destroy", {"Object"});
@@ -583,6 +673,7 @@ void Init(bool cameraCallbackReady) {
     cameraDepth = Method(cameraType,"get_depth"); cameraDisplay = Method(cameraType,"get_targetDisplay");
     cameraTarget = Method(cameraType,"get_targetTexture"); cameraRect = Method(cameraType,"get_rect");
     cameraMask = Method(cameraType,"get_cullingMask");
+    cameraFar = Method(cameraType,"get_farClipPlane");
     auto* skyboxClass = Class("UnityEngine","Skybox");
     skyboxType = skyboxClass ? il2::TypeObject(skyboxClass) : nullptr;
     getLocalSky = Method(skyboxClass,"get_material");
@@ -614,6 +705,8 @@ void Init(bool cameraCallbackReady) {
     rendererType=renderer ? il2::TypeObject(renderer) : nullptr;
     goCtor=Method(goType,".ctor",{"String"}); goAdd=Method(goType,"AddComponent",{"Type"});
     goLayer=Method(goType,"set_layer",{"Int32"});
+    goTransform=Method(goType,"get_transform");
+    transformPosition=Method(Class("UnityEngine","Transform"),"set_position",{"Vector3"});
     meshCtor=Method(meshType,".ctor"); meshDynamic=Method(meshType,"MarkDynamic");
     meshVertices=Method(meshType,"set_vertices",{"Vector3[]"}); meshUv=Method(meshType,"set_uv",{"Vector2[]"});
     meshIndices=Method(meshType,"set_triangles",{"Int32[]"}); meshColors=Method(meshType,"set_colors",{"Color[]"});
@@ -670,6 +763,7 @@ void Tick(void* mainCamera, bool inMatch) {
             appliedLight.reset();
             sceneSun.Clear();
             if (nativeParticles) ClearParticles();
+            ClearSkyDome();
         }
         scene = currentScene;
         if (nativeSky) {
@@ -681,7 +775,7 @@ void Tick(void* mainCamera, bool inMatch) {
                     lastMainCamera = nullptr;
                     if (!skyFailed) skyStatus = "Map sky";
                 }
-                if (shutdown) { backgroundCamera.Clear(); Destroy(material); Destroy(texture); }
+                if (shutdown) { backgroundCamera.Clear(); ClearSkyDome(); Destroy(material); Destroy(texture); }
             } catch (const std::exception& e) {
                 if (!skyFailed) Log("[world] sky: %s", e.what());
                 skyFailed = true;
