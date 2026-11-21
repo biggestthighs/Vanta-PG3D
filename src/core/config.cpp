@@ -57,6 +57,7 @@ static bool LoadFile(const std::wstring& path, std::string& error) {
         }
         if (j.contains("farm")) {
             const auto& farmSettings = j["farm"];
+            cfg.farm.wallbang = farmSettings.value("wallbang", false);
             cfg.farm.kill_limit = std::clamp(farmSettings.value("kill_limit", 3), 0, 100);
             cfg.farm.fov = std::clamp(farmSettings.value("fov", 360.f), 1.f, 360.f);
             cfg.farm.fire_mode = std::clamp(farmSettings.value("fire_mode", 1), 1, 2);
@@ -127,7 +128,7 @@ static bool SaveFile(const std::wstring& path, std::string& error) {
 #endif
     const auto& cfg = settings;
     nlohmann::json j;
-    j["farm"] = {{"kill_limit", cfg.farm.kill_limit}, {"fov", cfg.farm.fov}, {"fire_mode", cfg.farm.fire_mode}};
+    j["farm"] = {{"wallbang", cfg.farm.wallbang}, {"kill_limit", cfg.farm.kill_limit}, {"fov", cfg.farm.fov}, {"fire_mode", cfg.farm.fire_mode}};
     j["aim"] = { {"enabled", cfg.aim.enabled}, {"key", cfg.aim.key}, {"hold", cfg.aim.hold}, {"fov", cfg.aim.fov},
                  {"smooth", cfg.aim.smooth}, {"wall_check", cfg.aim.wall_check}, {"team_check", cfg.aim.team_check},
                  {"predict", cfg.aim.predict}, {"max_dist", cfg.aim.max_dist}, {"draw_fov", cfg.aim.draw_fov},

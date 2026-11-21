@@ -306,6 +306,8 @@ namespace menu {
         Section("DEATHMATCH FARM");
         ImGui::TextWrapped("%s", status.message.c_str());
         ImGui::SliderInt("kills per match", &cfg.farm.kill_limit, 0, 20);
+        Toggle("wallbang (shoot through walls)", &cfg.farm.wallbang);
+        Hint("Uses the existing wallbang mode while Farm is fighting, without holding a key. It stops at the kill limit. Server and weapon rules can still limit hits.");
         ImGui::SliderFloat("farm aim cone", &cfg.farm.fov, 1.f, 360.f, "%.0f degrees");
         int fireMode = cfg.farm.fire_mode - 1;
         if (ImGui::Combo("weapon fire", &fireMode, "hold (automatic)\0click (semi-auto)\0")) cfg.farm.fire_mode = fireMode + 1;

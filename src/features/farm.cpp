@@ -297,7 +297,8 @@ namespace {
         cfg.silent.hold = false;
         cfg.silent.fov = std::clamp(cfg.farm.fov, 1.f, 360.f);
         cfg.silent.method = 0;
-        cfg.silent.wallbang = false;
+        cfg.silent.wallbang = cfg.farm.wallbang;
+        cfg.silent.wall_hold = false;
         cfg.silent.auto_fire = std::clamp(cfg.farm.fire_mode, 1, 2);
         cfg.aim.team_check = false;
         profileCombat = true;

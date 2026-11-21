@@ -15,11 +15,11 @@ int main() {
     try {
         std::string error;
         Require(ConfigProfiles(error).empty(), "missing profile directory should be empty");
-        cfg.aim.fov = 73.f; cfg.sound.hit_file = "bell.wav"; cfg.farm.kill_limit = 7;
+        cfg.aim.fov = 73.f; cfg.sound.hit_file = "bell.wav"; cfg.farm.kill_limit = 7; cfg.farm.wallbang = true;
         Require(ConfigSaveProfile("Test preset", error), "save failed");
-        cfg.aim.fov = 12.f; cfg.sound.hit_file = "click.wav"; cfg.farm.kill_limit = 1;
+        cfg.aim.fov = 12.f; cfg.sound.hit_file = "click.wav"; cfg.farm.kill_limit = 1; cfg.farm.wallbang = false;
         Require(ConfigLoadProfile("Test preset", error), "load failed");
-        Require(cfg.aim.fov == 73.f && cfg.sound.hit_file == "bell.wav" && cfg.farm.kill_limit == 7,
+        Require(cfg.aim.fov == 73.f && cfg.sound.hit_file == "bell.wav" && cfg.farm.kill_limit == 7 && cfg.farm.wallbang,
                 "configuration round trip lost settings");
         cfg.aim.fov = 91.f;
         Require(ConfigSaveProfile("Test preset", error), "overwrite failed");

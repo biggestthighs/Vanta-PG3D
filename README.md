@@ -2,11 +2,11 @@
 
 A Windows x64 client for Pixel Gun 3D PC Edition, with a portable launcher, in-game controls and Deathmatch automation.
 
-**v0.1.7 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
+**v0.1.8 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
 
 ## Download and run
 
-Download `Vanta-v0.1.7-win64-with-source.zip` from Releases and **extract the entire ZIP** into a writable folder.
+Download `Vanta-v0.1.8-win64-with-source.zip` from Releases and **extract the entire ZIP** into a writable folder.
 
 1. Start Pixel Gun 3D and wait for the main menu.
 2. Open `Vanta.exe` and click **Load Vanta**.
@@ -24,7 +24,7 @@ The menu and panic keys can be changed in Settings. Closing the launcher does no
 
 ## Controls
 
-In v0.1.7, automatic firing uses the earlier Windows mouse press/release implementation. The experimental Unity input replacement and cursor-location gate remain rolled back. Gun notices with a collider-only background are now recognized by their explicit ?Press anywhere to close? prompt, even when the same panel also says ?Available for purchase?. Farm retains Deathmatch/Nuclear City navigation, XP claims, new-weapon dismissal, reward priority and delayed replay.
+In v0.1.8, automatic firing uses the earlier Windows mouse press/release implementation. The experimental Unity input replacement and cursor-location gate remain rolled back. Gun notices with a collider-only background are now recognized by their explicit ?Press anywhere to close? prompt, even when the same panel also says ?Available for purchase?. Farm retains Deathmatch/Nuclear City navigation, XP claims, new-weapon dismissal, reward priority and delayed replay.
 
 - **Overview:** session status, shortcuts and keyboard controls.
 - **Aim & fire:** aim assistance, silent aim, target cone and automatic firing.
@@ -32,7 +32,7 @@ In v0.1.7, automatic firing uses the earlier Windows mouse press/release impleme
 - **Visuals:** player boxes, labels, radar and colors.
 - **Camera & models:** FOV, third person and experimental static models.
 - **Sounds:** 48 bundled WAV files in `sounds/`. You can also import your own 16-bit PCM WAV files.
-- **Farm:** configure a kill limit, then press Start farm and close the menu. It reads stored match kills, disables gameplay assistance at the limit, and handles recognized respawn, trophy, reward and replay controls. Zero kills selects an idle run. Stop farm restores your previous settings.
+- **Farm:** optional wallbang toggle (no hold key during Farm combat), saved with your presets. Configure a kill limit, then press Start farm and close the menu. It reads stored match kills, disables gameplay assistance at the limit, and handles recognized respawn, trophy, reward and replay controls. Zero kills selects an idle run. Stop farm restores your previous settings.
 - **Config:** save named presets, overwrite them, or load a selected preset from `configs/`. Stop Farm before loading.
 - **Debug / Settings:** diagnostics, keybinds and settings persistence.
 

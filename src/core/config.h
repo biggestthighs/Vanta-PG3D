@@ -110,6 +110,7 @@ struct MiscCfg {
 };
 
 struct FarmCfg {
+    bool wallbang = false;
     int kill_limit = 3;
     float fov = 360.f;
     int fire_mode = 1;
