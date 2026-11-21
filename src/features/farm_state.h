@@ -103,6 +103,27 @@ namespace farm::logic {
         return normalized;
     }
 
+    inline bool IsNoticeBackdrop(const std::string& path) {
+        const std::string leaf = Normalize(path.substr(path.find_last_of('/') == std::string::npos ? 0 : path.find_last_of('/') + 1));
+        return leaf == "background" || leaf == "bg" || leaf == "overlay" ||
+               leaf == "blocker" || leaf == "clickhandler" || leaf == "close" ||
+               leaf == "closebutton" || leaf == "buttonclose" || leaf == "btnclose";
+    }
+
+    inline bool IsNoticeDismiss(const std::string& path, const std::string& label) {
+        const std::string name = Normalize(path), text = Normalize(label);
+        const bool notice = name.find("modalbannerholder") != std::string::npos ||
+                            name.find("newweapons") != std::string::npos ||
+                            name.find("newguns") != std::string::npos ||
+                            name.find("availableweapons") != std::string::npos ||
+                            name.find("weaponsavailable") != std::string::npos ||
+                            name.find("levelupweapons") != std::string::npos;
+        // The background's descendants include both the purchase heading and
+        // the close prompt. Match that explicit prompt, not a weapon tile.
+        return notice && (text.find("pressanywheretoclose") != std::string::npos ||
+                          text.find("tapanywheretoclose") != std::string::npos);
+    }
+
     inline Action Classify(const std::string& path, const std::string& label) {
         const std::string name = Normalize(path), text = Normalize(label);
         const std::string leaf = Normalize(path.substr(path.find_last_of('/') == std::string::npos ? 0 : path.find_last_of('/') + 1));
@@ -111,6 +132,7 @@ namespace farm::logic {
                                   name.find("levelupweapons") != std::string::npos;
         if (weaponNotice && (leaf == "close" || leaf == "btnclose" || leaf == "buttonclose" || leaf == "closebutton"))
             return Action::Reward;
+        if (IsNoticeDismiss(path, label)) return Action::Reward;
         // Dismiss only the notice's close surface, never its weapon tiles.
         if (text == "pressanywheretoclose" || text == "tapanywheretoclose") return Action::Reward;
         for (const char* blocked : {"purchase", "buy", "shop", "upgrade", "unlock", "watchvideo", "advert", "doublethe", "doubleyour", "openchest", "gems", "subscription", "spend"})

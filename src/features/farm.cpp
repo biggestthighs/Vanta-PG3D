@@ -58,6 +58,7 @@ namespace {
         void* click = nullptr;
         void* enabled = nullptr;
         bool unity = false;
+        bool dismissOnly = false;
     };
     struct TextType { void* type; void* getter; };
     struct Control {
@@ -224,13 +225,36 @@ namespace {
             if (ActiveObject(Call(componentGo, object))) { hudPresent = true; break; }
         std::unordered_set<void*> seen;
         for (const auto& backend : backends) {
+            if (backend.dismissOnly && hudPresent && !modalPresent) continue;
             Root objects(Find(backend.type));
             for (void* object : Array(objects.pointer)) {
                 void* gameObject = Call(componentGo, object);
                 Root retainedGo(gameObject);
                 if (!ActiveObject(gameObject) || !Bool(backend.enabled, object)) continue;
-                if (!seen.insert(gameObject).second) continue;
-                Control control{object, gameObject, backend, Path(gameObject), Label(gameObject)};
+                if (seen.count(gameObject)) continue;
+                const std::string path = Path(gameObject);
+                // NGUI also dispatches OnClick to collider-only backgrounds.
+                // Only admit a modal with an explicit anywhere-to-close prompt.
+                if (backend.dismissOnly && !logic::IsModal(path) &&
+                    !logic::IsNoticeDismiss(path, "Press anywhere to close")) continue;
+                std::string label = Label(gameObject);
+                if (backend.dismissOnly && !logic::IsNoticeDismiss(path, label) && logic::IsNoticeBackdrop(path)) {
+                    // The prompt can be a sibling of the hit-test background.
+                    // Look only within its modal, retaining the actual collider
+                    // as the OnClick receiver, rather than a weapon tile.
+                    void* transform = Call(goTransform, gameObject);
+                    for (int level = 0; transform && level < 3; ++level) {
+                        transform = Call(transformParent, transform);
+                        if (!transform) break;
+                        void* parent = Call(componentGo, transform);
+                        if (!parent || !logic::IsModal(Path(parent))) break;
+                        label = Label(parent);
+                        if (logic::IsNoticeDismiss(path, label)) break;
+                    }
+                }
+                if (backend.dismissOnly && !logic::IsNoticeDismiss(path, label)) continue;
+                seen.insert(gameObject);
+                Control control{object, gameObject, backend, path, label};
                 control.objectRoot = std::make_unique<Root>(object);
                 control.gameObjectRoot = std::make_unique<Root>(gameObject);
                 control.action = logic::Classify(control.path, control.label);
@@ -240,6 +264,10 @@ namespace {
                 controls.push_back(std::move(control));
             }
         }
+        // A foreground notice must close before a Continue button underneath.
+        std::stable_sort(controls.begin(), controls.end(), [](const Control& left, const Control& right) {
+            return logic::IsNoticeDismiss(left.path, left.label) && !logic::IsNoticeDismiss(right.path, right.label);
+        });
         if (diagnostic) Log("[farm] scan: %zu enabled buttons; match HUD=%d modal=%d", controls.size(), hudPresent, modalPresent);
     }
     bool Eligible(const Control& control) { return !modalPresent || control.modal; }
@@ -371,6 +399,15 @@ void Init() {
             if (backend.type && backend.enabled && unityEventGetter && unityEventInvoke) backends.push_back(backend);
         }
         std::stable_sort(backends.begin(), backends.end(), [](const Backend& left, const Backend& right) { return left.unity > right.unity; });
+        // A new-weapon notice can have no UIButton at all: NGUI routes the
+        // tap through its Collider/Collider2D to OnClick on the same object.
+        for (const char* name : {"Collider", "Collider2D"}) {
+            if (void* collider = Klass(name)) {
+                Backend backend{il2::TypeObject(collider), nullptr,
+                                Method(collider, "get_enabled", {}), false, true};
+                if (backend.type && backend.enabled && goSendMessage) backends.push_back(backend);
+            }
+        }
         for (const auto& entry : {std::pair{"UILabel", ""}, std::pair{"Text", "UnityEngine.UI"}, std::pair{"TMP_Text", "TMPro"}}) {
             void* klass = Klass(entry.first, entry.second);
             void* getter = Method(klass, "get_text", {});

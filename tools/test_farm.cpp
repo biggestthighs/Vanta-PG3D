@@ -173,6 +173,27 @@ int main() {
                 "new weapon notice must never buy a weapon");
         Require(Classify("ModalBannerHolder/NewWeapons/Background", "Press anywhere to close") == Action::Reward,
                 "new weapon notice background must dismiss the notice");
+        const std::string gunNotice = "ModalBannerHolder(Clone)/NewWeaponsAvailableBanner(Clone)/Background";
+        const std::string gunPrompt = "Available for purchase: Weapon A 26 Press anywhere to close";
+        Require(IsNoticeBackdrop(gunNotice), "background can use a sibling close prompt");
+        Require(!IsNoticeBackdrop(gunNotice + "/WeaponTile"), "weapon tile must not inherit a sibling close prompt");
+        Require(IsNoticeDismiss(gunNotice, gunPrompt), "collider background must accept an aggregate gun-notice prompt");
+        Require(Classify(gunNotice, gunPrompt) == Action::Reward, "purchase heading must not block notice dismissal");
+        Require(!IsNoticeDismiss(gunNotice + "/WeaponTile", "Available for purchase: 26"), "weapon tile must not become a dismissal target");
+        Require(!IsNoticeDismiss("Lobby/Background", "Press anywhere to close"), "collider fallback must be limited to notices");
+        Require(!IsNoticeDismiss(gunNotice, ""), "an unlabelled modal collider must not be clicked");
+        Controller rewards;
+        Observation rewardScreen;
+        rewardScreen.reward = rewardScreen.replay = true;
+        Require(rewards.Tick(rewardScreen, 3).action == Action::Reward, "gun notice must take priority over Battle");
+        ActionGate gunGate;
+        Require(!gunGate.Update(Action::Reward, gunNotice, false, 100), "gun background must settle before clicking");
+        Require(gunGate.Update(Action::Reward, gunNotice, false, 1100), "stable gun background must be clickable");
+        gunGate.Clicked(1100);
+        Require(!gunGate.Update(Action::Reward, xp, false, 1500), "Continue must wait after gun dismissal");
+        Require(gunGate.Update(Action::Reward, xp, false, 3200), "Continue must resume after gun dismissal");
+        rewardScreen.reward = false;
+        Require(rewards.Tick(rewardScreen, 3).action == Action::Replay, "replay must resume once all notices close");
         Controller navigation;
         Observation menu;
         menu.deathmatch = menu.nuclearCity = menu.start = true;
