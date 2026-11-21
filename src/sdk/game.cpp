@@ -562,10 +562,14 @@ namespace game {
 #ifdef CORE_BUILD
     using FireDelayFn = float(__fastcall*)(void*, void*);
     static FireDelayFn originalFireDelay = nullptr;
-    static std::atomic<bool> rapidReady{false};
+    static std::atomic<bool> rapidReady{false}, shotWaitReady{false};
+    using ShotWaitFn = void*(__fastcall*)(void*, float, void*);
+    static ShotWaitFn originalShotWait = nullptr;
+    static std::atomic<unsigned> shotWaitCalls{0}, shotWaitLocalCalls{0}, shotWaitReduced{0};
+    static std::atomic<float> lastShotWait{0.f}, lastScaledShotWait{0.f};
     static std::atomic<unsigned> delayCalls{0}, localDelayCalls{0}, reducedDelayCalls{0};
     static std::atomic<float> lastNormalDelay{0.f}, lastReturnedDelay{0.f};
-    bool RapidFireReady() { return rapidReady; }
+    bool RapidFireReady() { return rapidReady && shotWaitReady; }
     static bool LocalRapidWeapon(void* weapon) {
         return s_hasLocal && offOwner >= 0 && Ok(weapon) &&
             !IsBadReadPtr(static_cast<uint8_t*>(weapon) + offOwner, sizeof(void*)) &&
@@ -578,7 +582,7 @@ namespace game {
         ++localDelayCalls;
         lastNormalDelay = normal;
         float result = normal;
-        if (cfg.misc.rapid_fire && !cfg.panic && !render::MenuOpen &&
+        if (RapidFireReady() && cfg.misc.rapid_fire && !cfg.panic && !render::MenuOpen &&
             !farm::SuppressFeatures() && s_local.alive && GetForegroundWindow() == render::Hwnd &&
             std::isfinite(normal) && normal > 0.f && normal <= 60.f) {
             result = normal / static_cast<float>(std::clamp(cfg.misc.rapid_fire_multiplier, 1, 50));
@@ -586,6 +590,70 @@ namespace game {
         }
         lastReturnedDelay = result;
         return result;
+    }
+    static void* __fastcall hkShotWait(void* player, float delay, void* method) {
+        ++shotWaitCalls;
+        float scaled = delay;
+        if (s_hasLocal && player == s_local.obj) {
+            ++shotWaitLocalCalls;
+            lastShotWait = delay;
+            if (RapidFireReady() && cfg.misc.rapid_fire && !cfg.panic && !render::MenuOpen &&
+                !farm::SuppressFeatures() && s_local.alive && GetForegroundWindow() == render::Hwnd &&
+                std::isfinite(delay) && delay > 0.f && delay <= 60.f) {
+                scaled = delay / static_cast<float>(std::clamp(cfg.misc.rapid_fire_multiplier, 1, 50));
+                if (scaled < delay) ++shotWaitReduced;
+            }
+            lastScaledShotWait = scaled;
+        }
+        return originalShotWait(player, scaled, method);
+    }
+    static void InitShotWait() {
+        // NewWeaponSystem.Steps reads WeaponContainer.bulletDelay inline,
+        // then calls this IEnumerator(Single) factory. That wait bypasses
+        // WeaponSounds' effective-delay getter and enforces another cadence.
+        constexpr uintptr_t waitRva = 0x1FCAD60;
+        const auto base = ModuleBase(L"GameAssembly.dll");
+        void* target = reinterpret_cast<void*>(base + waitRva);
+        const uint8_t prefix[] = {0x45,0x33,0xC0,0xE9};
+        // Verify the caller still passes WeaponContainer.bulletDelay as the
+        // Single argument; an IEnumerator(Single) signature alone is not enough.
+        void* container = il2::Class("WeaponContainer", "NewWeaponSystem");
+        const auto* loadDelay = reinterpret_cast<const uint8_t*>(base + 0xD3D3A8);
+        const auto* callWait = reinterpret_cast<const uint8_t*>(base + 0xD3D3B3);
+        const uint8_t loadPrefix[] = {0xF3,0x0F,0x10,0x4B,0x5C};
+        if (!InModule(reinterpret_cast<uintptr_t>(loadDelay) + 4, L"GameAssembly.dll") ||
+            !InModule(reinterpret_cast<uintptr_t>(callWait) + 4, L"GameAssembly.dll")) {
+            Log("[rapid-scheduler] unavailable: inline caller outside module"); return;
+        }
+        int32_t displacement = 0;
+        memcpy(&displacement, callWait + 1, sizeof(displacement));
+        const auto called = reinterpret_cast<uintptr_t>(callWait) + 5 + displacement;
+        if (!container || il2::FieldOffset(container, "bulletDelay") != 0x5C ||
+            memcmp(loadDelay, loadPrefix, sizeof(loadPrefix)) || *callWait != 0xE8 || called != reinterpret_cast<uintptr_t>(target)) {
+            Log("[rapid-scheduler] unavailable: inline bullet-delay caller no longer matches"); return;
+        }
+        auto returnType = reinterpret_cast<void*(*)(void*)>(GetProcAddress(GetModuleHandleW(L"GameAssembly.dll"), "il2cpp_method_get_return_type"));
+        auto flags = reinterpret_cast<uint32_t(*)(void*, uint32_t*)>(GetProcAddress(GetModuleHandleW(L"GameAssembly.dll"), "il2cpp_method_get_flags"));
+        if (!kPlayer || !returnType || !flags || !InModule(reinterpret_cast<uintptr_t>(target), L"GameAssembly.dll") || memcmp(target, prefix, sizeof(prefix))) {
+            Log("[rapid-scheduler] unavailable: factory signature mismatch"); return;
+        }
+        void* iterator = nullptr;
+        while (void* method = il2::api.class_get_methods(kPlayer, &iterator)) {
+            void* pointer = il2::api.method_get_pointer ? il2::api.method_get_pointer(method) : *reinterpret_cast<void**>(method);
+            if (pointer != target || il2::api.method_get_param_count(method) != 1) continue;
+            uint32_t implementation = 0;
+            if (flags(method, &implementation) & 16) continue;
+            void* result = il2::api.class_from_type(returnType(method));
+            void* parameter = il2::api.class_from_type(il2::api.method_get_param(method, 0));
+            if (!result || !parameter || strcmp(il2::api.class_get_name(result), "IEnumerator") || strcmp(il2::api.class_get_name(parameter), "Single")) continue;
+            const auto created = MH_CreateHook(target, &hkShotWait, reinterpret_cast<void**>(&originalShotWait));
+            const auto enabled = created == MH_OK ? MH_EnableHook(target) : MH_ERROR_NOT_CREATED;
+            shotWaitReady = created == MH_OK && enabled == MH_OK;
+            Log("[rapid-scheduler] factory=%s rva=%llX create=%d enable=%d ready=%d",
+                il2::api.method_get_name(method), static_cast<unsigned long long>(waitRva), created, enabled, shotWaitReady.load());
+            return;
+        }
+        Log("[rapid-scheduler] unavailable: runtime IEnumerator(Single) method not verified");
     }
     static void InitRapidFire() {
         // Static analysis for this build traced this WeaponSounds float getter
@@ -629,6 +697,10 @@ namespace game {
             enabled, rapidReady.load(), cfg.misc.rapid_fire_multiplier, delayCalls.load(), localDelayCalls.load(), reducedDelayCalls.load(),
             lastNormalDelay.load(), lastReturnedDelay.load(), GetForegroundWindow() == render::Hwnd,
             render::MenuOpen, cfg.panic, farm::SuppressFeatures(), s_local.alive, offOwner);
+        Log("[rapid-scheduler] enabled=%d ready=%d multiplier=%dx waitCalls=%u localWaits=%u reducedWaits=%u lastWait=%.6f->%.6f",
+            enabled, shotWaitReady.load(), cfg.misc.rapid_fire_multiplier,
+            shotWaitCalls.load(), shotWaitLocalCalls.load(), shotWaitReduced.load(),
+            lastShotWait.load(), lastScaledShotWait.load());
     }
 #endif
 
@@ -871,6 +943,7 @@ namespace game {
         if (mhs == MH_OK || mhs == MH_ERROR_ALREADY_INITIALIZED) {
 #ifdef CORE_BUILD
             InitRapidFire();
+            InitShotWait();
 #endif
             if (upd) MH_CreateHook(const_cast<void*>(upd), &hkUpdate, &oUpdate);
             if (late) MH_CreateHook(const_cast<void*>(late), &hkLateUpdate, &oLateUpdate);

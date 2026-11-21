@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Vanta VERSION 0.1.12 LANGUAGES C CXX)
+project(Vanta VERSION 0.1.13 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -117,3 +117,6 @@ add_executable(pg3d_config_test EXCLUDE_FROM_ALL tools/test_config.cpp src/core/
 target_include_directories(pg3d_config_test PRIVATE ${imgui_SOURCE_DIR})
 target_link_libraries(pg3d_config_test PRIVATE nlohmann_json::nlohmann_json)
 add_test(NAME config_profiles COMMAND pg3d_config_test)
+
+# Optional read-only weapon timing metadata diagnostic.
+add_library(pg3d_rapid_probe SHARED EXCLUDE_FROM_ALL tools/rapid_probe.cpp src/core/common.cpp src/sdk/il2cpp.cpp)

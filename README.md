@@ -2,11 +2,11 @@
 
 A Windows x64 client for Pixel Gun 3D PC Edition, with a portable launcher, in-game controls and Deathmatch automation.
 
-**v0.1.12 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
+**v0.1.13 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
 
 ## Download and run
 
-Download `Vanta-v0.1.12-win64-with-source.zip` from Releases and **extract the entire ZIP** into a writable folder.
+Download `Vanta-v0.1.13-win64-with-source.zip` from Releases and **extract the entire ZIP** into a writable folder.
 
 1. Start Pixel Gun 3D and wait for the main menu.
 2. Open `Vanta.exe` and click **Load Vanta**.
@@ -24,7 +24,7 @@ The menu and panic keys can be changed in Settings. Closing the launcher does no
 
 ## Controls
 
-In v0.1.12, automatic firing uses the earlier Windows mouse press/release implementation. The experimental Unity input replacement and cursor-location gate remain rolled back. Gun notices with a collider-only background are now recognized by their explicit ?Press anywhere to close? prompt, even when the same panel also says ?Available for purchase?. Farm retains Deathmatch/Nuclear City navigation, XP claims, new-weapon dismissal, reward priority and delayed replay.
+In v0.1.13, automatic firing uses the earlier Windows mouse press/release implementation. The experimental Unity input replacement and cursor-location gate remain rolled back. Gun notices with a collider-only background are now recognized by their explicit ?Press anywhere to close? prompt, even when the same panel also says ?Available for purchase?. Farm retains Deathmatch/Nuclear City navigation, XP claims, new-weapon dismissal, reward priority and delayed replay.
 
 - **Overview:** session status, shortcuts and keyboard controls.
 - **Aim & fire:** aim assistance, silent aim, target cone, automatic firing, and experimental rapid fire. Rapid fire has a saved 1x?50x requested speed multiplier (2x defaults to half the normal delay). It hooks a verified effective cooldown getter for the local weapon, including calls outside Update; it is paused during Farm. Its call/reduction counters and returned delay are logged every three seconds while enabled. Actual firing/damage rates require in-game verification and may be limited by the server.
@@ -72,4 +72,4 @@ Source is published for inspection and building. No license for the original pro
 
 Click **Update Vanta** in the launcher after unloading the DLL with END. The hidden PowerShell helper checks public GitHub releases (including previews), verifies the download checksum, updates the same installation folder, and reopens the launcher. Existing `config.json`, `configs/`, and sound files are preserved. One sibling `Vanta.zip` is refreshed. A failed install restores replaced files. Network errors leave the installed build available.
 
-Rapid-fire performance is still unresolved: 50x has been observed at the cooldown getter but does not establish 50x actual firing. For diagnostics, hold fire for three seconds at 1x and 50x without reloading or changing weapons. `[rapid-rate]` records read-only displayed-ammo consumption; this is client-side telemetry, not accepted server damage. No additional timing bypass is included in v0.1.12.
+Rapid-fire performance is still unresolved: 50x has been observed at the cooldown getter but does not establish 50x actual firing. For diagnostics, hold fire for three seconds at 1x and 50x without reloading or changing weapons. `[rapid-rate]` records read-only displayed-ammo consumption; this is client-side telemetry, not accepted server damage. v0.1.13 additionally scales the verified IEnumerator(Single) factory used by the newer weapon system's inline bulletDelay step. `[rapid-scheduler]` logs actual wait-factory calls and incoming/scaled arguments. This additional path is statically traced but its live rate improvement remains unverified.
