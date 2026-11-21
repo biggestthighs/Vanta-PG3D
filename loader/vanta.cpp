@@ -21,14 +21,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE); return control;
         };
         label(L"VANTA",28,23,430,48,titleFont);
-        label(L"PIXEL GUN 3D  /  v0.1.6 preview",30,78,450,26,bodyFont);
+        label(L"PIXEL GUN 3D  /  v" VANTA_VERSION L" preview",30,78,450,26,bodyFont);
         label(L"1. Start the game and wait for the main menu.\n2. Load Vanta, then return to the game.\n3. Press INSERT to open your controls.",30,126,470,80,bodyFont);
         statusText = label(L"Ready. Your settings are saved beside the DLL.",30,225,470,64,bodyFont);
         loadButton = CreateWindowW(L"BUTTON",L"Load Vanta",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON,30,310,210,42,window,reinterpret_cast<HMENU>(1),nullptr,nullptr);
         HWND folder = CreateWindowW(L"BUTTON",L"Open folder",WS_CHILD|WS_VISIBLE|WS_TABSTOP,255,310,245,42,window,reinterpret_cast<HMENU>(2),nullptr,nullptr);
         SendMessageW(loadButton,WM_SETFONT,reinterpret_cast<WPARAM>(bodyFont),TRUE);
         SendMessageW(folder,WM_SETFONT,reinterpret_cast<WPARAM>(bodyFont),TRUE);
-        label(L"INSERT  Menu     DELETE  Panic     END  Unload",30,380,480,28,bodyFont);
+        HWND update = CreateWindowW(L"BUTTON",L"Update Vanta",WS_CHILD|WS_VISIBLE|WS_TABSTOP,30,365,470,36,window,reinterpret_cast<HMENU>(3),nullptr,nullptr);
+        SendMessageW(update,WM_SETFONT,reinterpret_cast<WPARAM>(bodyFont),TRUE);
+        label(L"INSERT  Menu     DELETE  Panic     END  Unload",30,420,480,28,bodyFont);
         return 0;
     }
     case WM_CTLCOLORSTATIC:
@@ -44,6 +46,30 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
                 catch (...) { *result={false,L"Could not read the package. Extract it into a writable folder and try again."}; }
                 if (PostMessageW(window,Done,0,reinterpret_cast<LPARAM>(result.get()))) result.release();
             }).detach();
+        } else if (LOWORD(wp)==3 && !busy) {
+            if (vanta::HasCore(vanta::FindGame())) {
+                SetWindowTextW(statusText,L"Press END in-game to unload Vanta before updating.");
+                return 0;
+            }
+            const auto script = vanta::Folder()/L"update.ps1";
+            if (!std::filesystem::is_regular_file(script)) {
+                SetWindowTextW(statusText,L"Missing update.ps1. Extract the complete package.");
+                return 0;
+            }
+            wchar_t system[MAX_PATH]{};
+            GetSystemDirectoryW(system,MAX_PATH);
+            const std::wstring powershell = std::wstring(system)+L"\\WindowsPowerShell\\v1.0\\powershell.exe";
+            std::wstring command = L"\""+powershell+L"\" -NoProfile -ExecutionPolicy Bypass -File \""+
+                script.wstring()+L"\" -InstallDir \""+vanta::Folder().wstring()+L"\" -CurrentVersion " VANTA_VERSION L" -LauncherPid "+std::to_wstring(GetCurrentProcessId());
+            STARTUPINFOW startup{sizeof(startup)};
+            startup.dwFlags=STARTF_USESHOWWINDOW; startup.wShowWindow=SW_HIDE;
+            PROCESS_INFORMATION process{};
+            if (!CreateProcessW(powershell.c_str(),command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,vanta::Folder().c_str(),&startup,&process)) {
+                SetWindowTextW(statusText,L"Could not start the updater. Check the folder permissions.");
+                return 0;
+            }
+            CloseHandle(process.hThread); CloseHandle(process.hProcess);
+            DestroyWindow(window);
         } else if (LOWORD(wp)==2) ShellExecuteW(window,L"open",vanta::Folder().c_str(),nullptr,nullptr,SW_SHOWNORMAL);
         return 0;
     case Done: {
@@ -59,7 +85,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
 }
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR commandLine,int show) {
     // Non-interactive packaging smoke test; never touches the game or opens UI.
-    if (commandLine && !wcscmp(commandLine, L"--check-package")) {
+    int argumentCount = 0;
+    auto arguments = CommandLineToArgvW(GetCommandLineW(), &argumentCount);
+    const bool checkPackage = arguments && argumentCount == 2 && !wcscmp(arguments[1], L"--check-package");
+    if (arguments) LocalFree(arguments);
+    if (checkPackage) {
         const auto folder = vanta::Folder();
         return std::filesystem::is_regular_file(folder / L"pg3d_core.dll") &&
                std::filesystem::is_regular_file(folder / L"offsets.json") &&
@@ -70,7 +100,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR commandLine,int show) {
     WNDCLASSW klass{}; klass.hInstance=instance; klass.lpfnWndProc=WindowProc;
     klass.lpszClassName=L"VantaLauncher"; klass.hbrBackground=background;
     klass.hCursor=LoadCursorW(nullptr,IDC_ARROW); RegisterClassW(&klass);
-    RECT rect{0,0,540,440}; const DWORD style=WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX;
+    RECT rect{0,0,540,480}; const DWORD style=WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX;
     AdjustWindowRect(&rect,style,FALSE);
     HWND window=CreateWindowW(klass.lpszClassName,L"Vanta | Pixel Gun 3D",style,CW_USEDEFAULT,CW_USEDEFAULT,rect.right-rect.left,rect.bottom-rect.top,nullptr,nullptr,instance,nullptr);
     if (!window) return 1;

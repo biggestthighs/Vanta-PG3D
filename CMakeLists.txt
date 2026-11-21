@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Vanta VERSION 0.1.6 LANGUAGES C CXX)
+project(Vanta VERSION 0.1.7 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -105,7 +105,7 @@ set_target_properties(pg3d_core pg3d_dumper PROPERTIES
 
 # Portable release launcher; /MT avoids a separate Visual C++ runtime install.
 add_executable(Vanta WIN32 loader/vanta.cpp)
-target_compile_definitions(Vanta PRIVATE UNICODE _UNICODE _WIN32_WINNT=0x0A00)
+target_compile_definitions(Vanta PRIVATE UNICODE _UNICODE _WIN32_WINNT=0x0A00 VANTA_VERSION=L\"${PROJECT_VERSION}\")
 target_link_libraries(Vanta PRIVATE user32 gdi32 shell32)
 set_property(TARGET Vanta PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set_target_properties(Vanta PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/Release")

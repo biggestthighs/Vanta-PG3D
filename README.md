@@ -2,11 +2,11 @@
 
 A Windows x64 client for Pixel Gun 3D PC Edition, with a portable launcher, in-game controls and Deathmatch automation.
 
-**v0.1.6 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
+**v0.1.7 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
 
 ## Download and run
 
-Download `Vanta-v0.1.6-win64-with-source.zip` from Releases and **extract the entire ZIP** into a writable folder.
+Download `Vanta-v0.1.7-win64-with-source.zip` from Releases and **extract the entire ZIP** into a writable folder.
 
 1. Start Pixel Gun 3D and wait for the main menu.
 2. Open `Vanta.exe` and click **Load Vanta**.
@@ -24,7 +24,7 @@ The menu and panic keys can be changed in Settings. Closing the launcher does no
 
 ## Controls
 
-In v0.1.6, automatic firing uses the earlier Windows mouse press/release implementation. The experimental Unity input replacement and cursor-location gate remain rolled back. Gun notices with a collider-only background are now recognized by their explicit ?Press anywhere to close? prompt, even when the same panel also says ?Available for purchase?. Farm retains Deathmatch/Nuclear City navigation, XP claims, new-weapon dismissal, reward priority and delayed replay.
+In v0.1.7, automatic firing uses the earlier Windows mouse press/release implementation. The experimental Unity input replacement and cursor-location gate remain rolled back. Gun notices with a collider-only background are now recognized by their explicit ?Press anywhere to close? prompt, even when the same panel also says ?Available for purchase?. Farm retains Deathmatch/Nuclear City navigation, XP claims, new-weapon dismissal, reward priority and delayed replay.
 
 - **Overview:** session status, shortcuts and keyboard controls.
 - **Aim & fire:** aim assistance, silent aim, target cone and automatic firing.
@@ -67,3 +67,7 @@ The release ZIP contains a `source/` folder with the source used for the build. 
 ## Source and assets
 
 Source is published for inspection and building. No license for the original project code is granted by this release. Dependency notices retain their own terms. Bundled model files were supplied with this project; no authorship or license rights to those character assets are claimed here.
+
+## Updating
+
+Click **Update Vanta** in the launcher after unloading the DLL with END. The hidden PowerShell helper checks public GitHub releases (including previews), verifies the download checksum, updates the same installation folder, and reopens the launcher. Existing `config.json`, `configs/`, and sound files are preserved. One sibling `Vanta.zip` is refreshed. A failed install restores replaced files. Network errors leave the installed build available.

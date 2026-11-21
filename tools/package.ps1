@@ -1,23 +1,30 @@
 param(
-    [string]$Version = '0.1.0',
+    [string]$Version = '',
     [string]$BuildDir = 'build',
     [string]$OutputDir = 'dist'
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+if (-not $Version) {
+    $cmake = [IO.File]::ReadAllText((Join-Path $root 'CMakeLists.txt'))
+    if ($cmake -notmatch 'project\(Vanta VERSION ([0-9.]+)') { throw 'Cannot determine package version' }
+    $Version = $Matches[1]
+}
 $compiled = Join-Path (Join-Path $root $BuildDir) 'Release'
 $output = Join-Path $root $OutputDir
 foreach ($name in @('Vanta.exe', 'pg3d_core.dll')) {
     if (-not (Test-Path -LiteralPath (Join-Path $compiled $name))) { throw "Build first: missing $name" }
 }
 $stage = Join-Path $root ('build\package-' + [guid]::NewGuid().ToString('N'))
-$bundle = Join-Path $stage "Vanta-v$Version"
+$bundle = Join-Path $stage 'Vanta'
 $source = Join-Path $bundle 'source'
 New-Item -ItemType Directory -Path $source -Force | Out-Null
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 foreach ($name in @('Vanta.exe', 'pg3d_core.dll')) {
     Copy-Item -LiteralPath (Join-Path $compiled $name) -Destination $bundle
 }
+Copy-Item -LiteralPath (Join-Path $root 'tools\update.ps1') -Destination (Join-Path $bundle 'update.ps1')
+$Version | Set-Content -LiteralPath (Join-Path $bundle 'version.txt') -Encoding ascii
 $sounds = Join-Path $root 'assets\sounds'
 if (@(Get-ChildItem -LiteralPath $sounds -Filter '*.wav' -File).Count -eq 0) { throw 'Sound assets are missing; refusing to package an empty sounds folder' }
 Copy-Item -LiteralPath $sounds -Destination (Join-Path $bundle 'sounds') -Recurse

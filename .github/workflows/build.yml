@@ -14,9 +14,12 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -A x64
       - name: Compile
-        run: cmake --build build --config Release --target Vanta pg3d_core pg3d_farm_test pg3d_model_handle_test
+        run: cmake --build build --config Release --target Vanta pg3d_core pg3d_farm_test pg3d_model_handle_test pg3d_config_test
       - name: Regression tests
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Updater tests
+        shell: powershell
+        run: ./tools/test_update.ps1
       - name: Package source and executable
         shell: pwsh
         run: ./tools/package.ps1
