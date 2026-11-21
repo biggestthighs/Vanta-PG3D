@@ -47,6 +47,7 @@ namespace game {
 
     void* LocalWeapon();
     int WeaponOff(const char* key);
+    bool RapidFireReady(); // reflected weapon delay fields available
     int WeaponPenetrates();   // 1 yes, 0 no, -1 unknown (field not found)
     void ApplyFov();
     float CamFov();   // vertical field of view in degrees, for drawing angular cones

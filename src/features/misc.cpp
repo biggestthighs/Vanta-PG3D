@@ -1,9 +1,8 @@
 #include "features.h"
 #include "../core/config.h"
 
-// Only features that work without guessing at obfuscated fields live here. The weapon and
-// health memory writers were removed: their field offsets were never confirmed, so on a
-// wrong guess they would have corrupted unrelated game state.
+// General camera and movement features. Experimental rapid fire is scoped to
+// local updates in game.cpp and uses type-checked reflected weapon fields.
 namespace misc {
     static DWORD s_jump = 0;
 

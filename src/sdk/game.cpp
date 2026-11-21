@@ -558,11 +558,73 @@ namespace game {
     }
 #endif
 
+#ifdef CORE_BUILD
+    using ReadFireField = void(*)(void*, void*, void*);
+    using WriteFireField = void(*)(void*, void*, void*);
+    using FireHandleNew = uintptr_t(*)(void*, bool);
+    using FireHandleFree = void(*)(uintptr_t);
+    static ReadFireField readFireField = nullptr;
+    static WriteFireField writeFireField = nullptr;
+    static FireHandleNew retainFireObject = nullptr;
+    static FireHandleFree releaseFireObject = nullptr;
+    static void* fireFields[2]{};
+    bool RapidFireReady() { return fireFields[0] && fireFields[1]; }
+    static void InitRapidFire() {
+        const HMODULE assembly = GetModuleHandleW(L"GameAssembly.dll");
+        readFireField = reinterpret_cast<ReadFireField>(GetProcAddress(assembly, "il2cpp_field_get_value"));
+        writeFireField = reinterpret_cast<WriteFireField>(GetProcAddress(assembly, "il2cpp_field_set_value"));
+        retainFireObject = reinterpret_cast<FireHandleNew>(GetProcAddress(assembly, "il2cpp_gchandle_new"));
+        releaseFireObject = reinterpret_cast<FireHandleFree>(GetProcAddress(assembly, "il2cpp_gchandle_free"));
+        auto fieldType = reinterpret_cast<void*(*)(void*)>(GetProcAddress(assembly, "il2cpp_field_get_type"));
+        auto fieldFlags = reinterpret_cast<int(*)(void*)>(GetProcAddress(assembly, "il2cpp_field_get_flags"));
+        fireFields[0] = fireFields[1] = nullptr;
+        if (!kWeapon || !readFireField || !writeFireField || !retainFireObject || !releaseFireObject || !fieldType || !fieldFlags) return;
+        void* iterator = nullptr;
+        while (void* field = il2::api.class_get_fields(kWeapon, &iterator)) {
+            const char* name = il2::api.field_get_name(field);
+            const int slot = !strcmp(name, "bulletDelay") ? 0 : !strcmp(name, "shootDelay") ? 1 : -1;
+            if (slot < 0 || (fieldFlags(field) & 16)) continue;
+            void* type = il2::api.class_from_type(fieldType(field));
+            if (type && !strcmp(il2::api.class_get_name(type), "Single")) fireFields[slot] = field;
+        }
+        Log("[rapid] reflected float delay fields ready=%d; experimental, 5ms requested interval", RapidFireReady());
+    }
+    struct RapidFireScope {
+        void* weapon = nullptr;
+        uintptr_t handle = 0;
+        float original[2]{};
+        bool changed[2]{};
+        explicit RapidFireScope(bool localUpdate) {
+            if (!localUpdate || !RapidFireReady() || !cfg.misc.rapid_fire || cfg.panic || render::MenuOpen ||
+                farm::SuppressFeatures() || !s_local.alive || GetForegroundWindow() != render::Hwnd) return;
+            weapon = LocalWeapon();
+            if (!Ok(weapon) || il2::api.object_get_class(weapon) != kWeapon) return;
+            handle = retainFireObject(weapon, true);
+            if (!handle) return;
+            for (int i = 0; i < 2; ++i) {
+                readFireField(weapon, fireFields[i], &original[i]);
+                if (!std::isfinite(original[i]) || original[i] < 0.f || original[i] > 60.f) continue;
+                float interval = std::min(original[i], 0.005f);
+                if (interval == original[i]) continue;
+                writeFireField(weapon, fireFields[i], &interval);
+                changed[i] = true;
+            }
+        }
+        ~RapidFireScope() {
+            if (!handle) return;
+            for (int i = 0; i < 2; ++i) if (changed[i]) writeFireField(weapon, fireFields[i], &original[i]);
+            releaseFireObject(handle);
+        }
+        RapidFireScope(const RapidFireScope&) = delete;
+    };
+#endif
+
     static void __fastcall hkUpdate(void* self, void*) {
         if (self) Touch(s_objs, self, 256);
 #ifdef CORE_BUILD
         const bool wrap = s_ready && s_hasLocal && self == s_local.obj;
         if (wrap) { TpEarly(); rage::WrapBegin(self, false); }
+        RapidFireScope rapid(wrap);
 #endif
         if (oUpdate) reinterpret_cast<void(__fastcall*)(void*, void*)>(oUpdate)(self, nullptr);
 #ifdef CORE_BUILD
@@ -594,6 +656,7 @@ namespace game {
         custommodel::ServiceShutdown();
         const bool wrap = s_ready && s_hasLocal;
         if (wrap) rage::WrapBegin(self, true);
+        RapidFireScope rapid(wrap && self == LocalWeapon());
 #endif
         if (oWeaponUpdate) reinterpret_cast<void(__fastcall*)(void*, void*)>(oWeaponUpdate)(self, nullptr);
 #ifdef CORE_BUILD
@@ -652,6 +715,9 @@ namespace game {
         kDmg = il2::Class("PlayerDamageable");
         Log("[game] classes player=%p weapon=%p camera=%p", kPlayer, kWeapon, kCamera);
         if (!kPlayer || !kCamera || !kTransform) { Log("[game] core classes missing"); return false; }
+#ifdef CORE_BUILD
+        InitRapidFire();
+#endif
 
         offNick = il2::FieldOffset(kPlayer, "nickLabel");
         offTr = il2::FieldOffset(kPlayer, "myPlayerTransform");
