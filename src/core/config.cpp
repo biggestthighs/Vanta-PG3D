@@ -5,16 +5,19 @@
 #include "../features/farm.h"
 #endif
 #include <fstream>
+#include <filesystem>
 
 Cfg cfg;
 static std::wstring Path() { return DllDir() + L"\\config.json"; }
 
-void ConfigLoad() {
-    std::ifstream f(Path());
-    if (!f) { Log("[cfg] no config, defaults"); return; }
+static bool LoadFile(const std::wstring& path, std::string& error) {
+    std::ifstream f(path);
+    if (!f) { error = "Could not open configuration."; return false; }
+    const Cfg previous = cfg;
     try {
         nlohmann::json j;
         f >> j;
+        if (!j.is_object()) throw std::runtime_error("Configuration must be a JSON object.");
         auto& a = j["aim"]; auto& t = j["trig"]; auto& v = j["vis"]; auto& m = j["misc"];
         cfg.aim.enabled = a.value("enabled", cfg.aim.enabled);
         cfg.aim.key = a.value("key", cfg.aim.key);
@@ -102,10 +105,22 @@ void ConfigLoad() {
         cfg.misc.tp_model_height = m.value("tp_model_height", cfg.misc.tp_model_height);
         cfg.menu_key = j.value("menu_key", cfg.menu_key);
         Log("[cfg] loaded");
-    } catch (...) { Log("[cfg] parse failed"); }
+        return true;
+    } catch (const std::exception& e) {
+        cfg = previous;
+        error = std::string("Could not load configuration: ") + e.what();
+        Log("[cfg] parse failed; settings unchanged");
+        return false;
+    }
 }
 
-void ConfigSave() {
+void ConfigLoad() {
+    std::string error;
+    if (!LoadFile(Path(), error)) Log("[cfg] %s", error.c_str());
+}
+
+static bool SaveFile(const std::wstring& path, std::string& error) {
+    try {
     Cfg settings = cfg;
 #ifdef CORE_BUILD
     farm::SettingsToSave(settings);
@@ -138,7 +153,73 @@ void ConfigSave() {
                   {"tp_model_yaw", cfg.misc.tp_model_yaw}, {"tp_model_height", cfg.misc.tp_model_height} };
     j["menu_key"] = cfg.menu_key;
     j["panic_key"] = cfg.panic_key;
-    std::ofstream f(Path());
-    if (f) f << j.dump(2);
+    const std::wstring temporary = path + L".tmp";
+    std::ofstream f(temporary, std::ios::binary | std::ios::trunc);
+    if (!f) { error = "Could not write configuration."; return false; }
+    f << j.dump(2);
+    f.close();
+    if (!f || !MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        DeleteFileW(temporary.c_str());
+        error = "Could not finish saving configuration; previous file kept.";
+        return false;
+    }
+    return true;
+    } catch (const std::exception& e) {
+        error = std::string("Could not save configuration: ") + e.what();
+        return false;
+    }
+}
+
+void ConfigSave() {
+    std::string error;
+    if (!SaveFile(Path(), error)) Log("[cfg] %s", error.c_str());
+}
+
+static bool ProfilePath(const std::string& name, std::wstring& path, std::string& error) {
+    if (name.empty() || name.size() > 48 || name.front() == ' ' || name.back() == ' ') {
+        error = "Use a name of 1-48 characters, without leading or trailing spaces.";
+        return false;
+    }
+    for (unsigned char c : name) {
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == ' ' || c == '_' || c == '-')) {
+            error = "Names can contain letters, numbers, spaces, hyphens and underscores.";
+            return false;
+        }
+    }
+    path = DllDir() + L"\\configs\\" + std::wstring(name.begin(), name.end()) + L".json";
+    return true;
+}
+
+std::vector<std::string> ConfigProfiles(std::string& error) {
+    std::vector<std::string> names;
+    try {
+        const auto directory = std::filesystem::path(DllDir()) / "configs";
+        if (!std::filesystem::exists(directory)) return names;
+        for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".json") continue;
+            const std::string name = entry.path().stem().string();
+            std::wstring path;
+            std::string ignored;
+            if (ProfilePath(name, path, ignored)) names.push_back(name);
+        }
+        std::sort(names.begin(), names.end());
+    } catch (const std::exception& e) { error = std::string("Could not list configurations: ") + e.what(); }
+    return names;
+}
+
+bool ConfigSaveProfile(const std::string& name, std::string& error) {
+    error.clear();
+    std::wstring path;
+    if (!ProfilePath(name, path, error)) return false;
+    try { std::filesystem::create_directories(std::filesystem::path(DllDir()) / "configs"); }
+    catch (const std::exception& e) { error = e.what(); return false; }
+    return SaveFile(path, error);
+}
+
+bool ConfigLoadProfile(const std::string& name, std::string& error) {
+    error.clear();
+    std::wstring path;
+    return ProfilePath(name, path, error) && LoadFile(path, error);
 }
 

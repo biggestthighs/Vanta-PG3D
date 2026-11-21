@@ -359,6 +359,53 @@ namespace menu {
         else ImGui::TextUnformatted("aim target none");
     }
 
+    static void TabConfig() {
+        static char name[49] = "My config";
+        static std::string selected, message;
+        static std::vector<std::string> profiles;
+        static bool refresh = true;
+        if (refresh) {
+            std::string error;
+            profiles = ConfigProfiles(error);
+            if (!error.empty()) message = error;
+            refresh = false;
+        }
+        Section("SAVED CONFIGURATIONS");
+        Hint("Save separate presets for your settings. Configurations are stored in the configs folder beside Vanta.");
+        if (ImGui::BeginListBox("##configs", {-1, 170})) {
+            for (const auto& profile : profiles) {
+                if (ImGui::Selectable(profile.c_str(), selected == profile)) {
+                    selected = profile;
+                    snprintf(name, sizeof(name), "%s", profile.c_str());
+                }
+            }
+            ImGui::EndListBox();
+        }
+        if (profiles.empty()) ImGui::TextDisabled("No saved configurations yet.");
+        ImGui::InputText("config name", name, sizeof(name));
+        const bool exists = std::find(profiles.begin(), profiles.end(), name) != profiles.end();
+        if (ImGui::Button(exists ? "Overwrite config" : "Save config", {160, 0})) {
+            std::string error;
+            if (ConfigSaveProfile(name, error)) {
+                selected = name;
+                message = "Saved " + selected + ".";
+                refresh = true;
+            } else message = error;
+        }
+        ImGui::SameLine();
+        ImGui::BeginDisabled(selected.empty() || farm::Active());
+        if (ImGui::Button("Load selected", {140, 0})) {
+            std::string error;
+            message = ConfigLoadProfile(selected, error) ? "Loaded " + selected + "." : error;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Refresh", {90, 0})) refresh = true;
+        if (farm::Active()) Hint("Stop Farm before loading a configuration. Saving is available while Farm runs.");
+        if (!message.empty()) ImGui::TextWrapped("%s", message.c_str());
+        Hint("Closing the menu also saves your current settings for the next launch. Named presets change only when you save or overwrite them.");
+    }
+
     static void TabSettings() {
         Section("MENU");
         KeyRow("menu key", &cfg.menu_key);
@@ -374,7 +421,7 @@ namespace menu {
 
     void Render() {
         static int tab = 0;
-        static const char* names[] = { "Overview", "Aim & fire", "Triggerbot", "Visuals", "Camera & models", "Sounds", "Farm", "Debug", "Settings" };
+        static const char* names[] = { "Overview", "Aim & fire", "Triggerbot", "Visuals", "Camera & models", "Sounds", "Farm", "Debug", "Config", "Settings" };
 
         ImGui::SetNextWindowSize({ 880, 650 }, ImGuiCond_Once);
         ImGui::SetNextWindowSizeConstraints({720, 500}, {1400, 1000});
@@ -409,7 +456,7 @@ namespace menu {
         ImGui::PushStyleColor(ImGuiCol_ChildBg, { 0.075f, 0.078f, 0.098f, 1.f });
         ImGui::BeginChild("##side", { 174, 0 }, false);
         ImGui::SetCursorPos({ 12, 16 });
-        for (int i = 0; i < 9; i++) {
+        for (int i = 0; i < 10; i++) {
             ImGui::SetCursorPosX(12);
             const bool sel = tab == i;
             const ImVec2 p = ImGui::GetCursorScreenPos();
@@ -459,6 +506,7 @@ namespace menu {
         case 5: TabSounds(); break;
         case 6: TabFarm(); break;
         case 7: TabDebug(); break;
+        case 8: TabConfig(); break;
         default: TabSettings(); break;
         }
         ImGui::EndChild();

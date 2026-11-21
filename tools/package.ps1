@@ -18,6 +18,10 @@ New-Item -ItemType Directory -Path $output -Force | Out-Null
 foreach ($name in @('Vanta.exe', 'pg3d_core.dll')) {
     Copy-Item -LiteralPath (Join-Path $compiled $name) -Destination $bundle
 }
+$sounds = Join-Path $root 'assets\sounds'
+if (@(Get-ChildItem -LiteralPath $sounds -Filter '*.wav' -File).Count -eq 0) { throw 'Sound assets are missing; refusing to package an empty sounds folder' }
+Copy-Item -LiteralPath $sounds -Destination (Join-Path $bundle 'sounds') -Recurse
+New-Item -ItemType Directory -Path (Join-Path $bundle 'configs') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $root 'assets\models') -Destination (Join-Path $bundle 'models') -Recurse
 foreach ($name in @('offsets.json', 'README.md', 'QUICKSTART.txt')) {
     Copy-Item -LiteralPath (Join-Path $root $name) -Destination $bundle

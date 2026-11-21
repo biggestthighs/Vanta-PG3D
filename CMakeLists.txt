@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Vanta VERSION 0.1.5 LANGUAGES C CXX)
+project(Vanta VERSION 0.1.6 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -68,7 +68,9 @@ target_compile_definitions(pg3d_core PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX CO
 set_target_properties(pg3d_core PROPERTIES PREFIX "" OUTPUT_NAME "pg3d_core")
 add_custom_command(TARGET pg3d_core POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory
-    "${CMAKE_SOURCE_DIR}/assets/models" "$<TARGET_FILE_DIR:pg3d_core>/models")
+    "${CMAKE_SOURCE_DIR}/assets/models" "$<TARGET_FILE_DIR:pg3d_core>/models"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_SOURCE_DIR}/assets/sounds" "$<TARGET_FILE_DIR:pg3d_core>/sounds")
 
 # Optional native regression check; exercises the loader's actual GC handle paths.
 add_executable(pg3d_model_handle_test EXCLUDE_FROM_ALL tools/test_custommodel_handles.cpp)
@@ -110,3 +112,8 @@ set_target_properties(Vanta PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE
 enable_testing()
 add_test(NAME farm_regression COMMAND pg3d_farm_test)
 add_test(NAME model_handles COMMAND pg3d_model_handle_test)
+
+add_executable(pg3d_config_test EXCLUDE_FROM_ALL tools/test_config.cpp src/core/config.cpp)
+target_include_directories(pg3d_config_test PRIVATE ${imgui_SOURCE_DIR})
+target_link_libraries(pg3d_config_test PRIVATE nlohmann_json::nlohmann_json)
+add_test(NAME config_profiles COMMAND pg3d_config_test)

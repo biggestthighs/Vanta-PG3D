@@ -133,3 +133,7 @@ extern Cfg cfg;
 void ConfigLoad();
 void ConfigSave();
 
+
+std::vector<std::string> ConfigProfiles(std::string& error);
+bool ConfigSaveProfile(const std::string& name, std::string& error);
+bool ConfigLoadProfile(const std::string& name, std::string& error);
