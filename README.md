@@ -2,11 +2,11 @@
 
 A Windows x64 client for Pixel Gun 3D PC Edition, with a portable launcher, in-game controls and Deathmatch automation.
 
-**v0.1.10 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
+**v0.1.11 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
 
 ## Download and run
 
-Download `Vanta-v0.1.10-win64-with-source.zip` from Releases and **extract the entire ZIP** into a writable folder.
+Download `Vanta-v0.1.11-win64-with-source.zip` from Releases and **extract the entire ZIP** into a writable folder.
 
 1. Start Pixel Gun 3D and wait for the main menu.
 2. Open `Vanta.exe` and click **Load Vanta**.
@@ -24,10 +24,10 @@ The menu and panic keys can be changed in Settings. Closing the launcher does no
 
 ## Controls
 
-In v0.1.10, automatic firing uses the earlier Windows mouse press/release implementation. The experimental Unity input replacement and cursor-location gate remain rolled back. Gun notices with a collider-only background are now recognized by their explicit ?Press anywhere to close? prompt, even when the same panel also says ?Available for purchase?. Farm retains Deathmatch/Nuclear City navigation, XP claims, new-weapon dismissal, reward priority and delayed replay.
+In v0.1.11, automatic firing uses the earlier Windows mouse press/release implementation. The experimental Unity input replacement and cursor-location gate remain rolled back. Gun notices with a collider-only background are now recognized by their explicit ?Press anywhere to close? prompt, even when the same panel also says ?Available for purchase?. Farm retains Deathmatch/Nuclear City navigation, XP claims, new-weapon dismissal, reward priority and delayed replay.
 
 - **Overview:** session status, shortcuts and keyboard controls.
-- **Aim & fire:** aim assistance, silent aim, target cone, automatic firing, and experimental rapid fire. Rapid fire hooks a verified effective cooldown getter for the local weapon, including calls outside Update; it is paused during Farm. Its call/reduction counters and returned delay are logged every three seconds while enabled. Actual firing/damage rates require in-game verification and may be limited by the server.
+- **Aim & fire:** aim assistance, silent aim, target cone, automatic firing, and experimental rapid fire. Rapid fire has a saved 1x?50x requested speed multiplier (2x defaults to half the normal delay). It hooks a verified effective cooldown getter for the local weapon, including calls outside Update; it is paused during Farm. Its call/reduction counters and returned delay are logged every three seconds while enabled. Actual firing/damage rates require in-game verification and may be limited by the server.
 - **Triggerbot:** fire when a target crosses the selected gate.
 - **Visuals:** player boxes, labels, radar and colors.
 - **Camera & models:** FOV, third person and experimental static models.

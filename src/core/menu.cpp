@@ -157,8 +157,11 @@ namespace menu {
         Section("WEAPON / EXPERIMENTAL");
         ImGui::BeginDisabled(!game::RapidFireReady());
         Toggle("rapid fire", &cfg.misc.rapid_fire);
+        ImGui::SetNextItemWidth(300);
+        ImGui::SliderInt("fire rate multiplier", &cfg.misc.rapid_fire_multiplier, 1, 50, "%dx");
+        ImGui::TextDisabled("1x Normal   |   2x, 3x...   |   50x Super fast (requested)");
         ImGui::EndDisabled();
-        Hint(game::RapidFireReady() ? "Returns a 5ms effective firing delay for your weapon. Diagnostic counters are written to pg3d_core.log. Frame rate, weapon mechanics and server validation can still limit shots. Farm pauses this setting." : "Rapid fire unavailable: this build's effective cooldown method could not be verified.");
+        Hint(game::RapidFireReady() ? "Scales the returned weapon cooldown: 1x leaves it normal, 2x halves the delay, 3x divides it by three. This is a requested multiplier, not a measured firing rate. Diagnostics are written to pg3d_core.log. Other weapon timers or server rules can limit shots. Farm pauses this setting." : "Rapid fire unavailable: this build's effective cooldown method could not be verified.");
         Section("AIMBOT");
         Toggle("enabled", &cfg.aim.enabled);
         KeyRow("key", &cfg.aim.key);

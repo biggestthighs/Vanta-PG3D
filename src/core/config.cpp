@@ -92,6 +92,7 @@ static bool LoadFile(const std::wstring& path, std::string& error) {
         cfg.misc.no_recoil = m.value("no_recoil", cfg.misc.no_recoil);
         cfg.misc.no_spread = m.value("no_spread", cfg.misc.no_spread);
         cfg.misc.rapid_fire = m.value("rapid_fire", cfg.misc.rapid_fire);
+        cfg.misc.rapid_fire_multiplier = std::clamp(m.value("rapid_fire_multiplier", 2), 1, 50);
         cfg.misc.infinite_ammo = m.value("infinite_ammo", cfg.misc.infinite_ammo);
         cfg.misc.full_auto = m.value("full_auto", cfg.misc.full_auto);
         cfg.misc.auto_heal = m.value("auto_heal", cfg.misc.auto_heal);
@@ -147,7 +148,7 @@ static bool SaveFile(const std::wstring& path, std::string& error) {
                  {"fill_alpha", cfg.vis.fill_alpha}, {"arrows", cfg.vis.arrows}, {"radar", cfg.vis.radar},
                  {"radar_range", cfg.vis.radar_range}, {"radar_size", cfg.vis.radar_size} };
     j["misc"] = { {"fov_changer", cfg.misc.fov_changer}, {"fov_value", cfg.misc.fov_value}, {"no_recoil", cfg.misc.no_recoil},
-                  {"no_spread", cfg.misc.no_spread}, {"rapid_fire", cfg.misc.rapid_fire}, {"infinite_ammo", cfg.misc.infinite_ammo},
+                  {"no_spread", cfg.misc.no_spread}, {"rapid_fire", cfg.misc.rapid_fire}, {"rapid_fire_multiplier", cfg.misc.rapid_fire_multiplier}, {"infinite_ammo", cfg.misc.infinite_ammo},
                   {"full_auto", cfg.misc.full_auto}, {"auto_heal", cfg.misc.auto_heal}, {"crosshair", cfg.misc.crosshair}, {"bhop", cfg.misc.bhop},
                   {"third_person", cfg.misc.third_person}, {"tp_dist", cfg.misc.tp_dist}, {"tp_height", cfg.misc.tp_height},
                   {"tp_model", cfg.misc.tp_model}, {"tp_model_scale", cfg.misc.tp_model_scale},

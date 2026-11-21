@@ -95,6 +95,7 @@ struct MiscCfg {
     bool no_recoil = false;
     bool no_spread = false;
     bool rapid_fire = false;
+    int rapid_fire_multiplier = 2;
     bool infinite_ammo = false;
     bool full_auto = false;
     bool auto_heal = false;

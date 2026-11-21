@@ -1,4 +1,5 @@
 #include "game.h"
+#include <algorithm>
 #include "il2cpp.h"
 #include "offsets.h"
 #include "../features/features.h"
@@ -580,7 +581,7 @@ namespace game {
         if (cfg.misc.rapid_fire && !cfg.panic && !render::MenuOpen &&
             !farm::SuppressFeatures() && s_local.alive && GetForegroundWindow() == render::Hwnd &&
             std::isfinite(normal) && normal > 0.f && normal <= 60.f) {
-            result = std::min(normal, 0.005f);
+            result = normal / static_cast<float>(std::clamp(cfg.misc.rapid_fire_multiplier, 1, 50));
             if (result < normal) ++reducedDelayCalls;
         }
         lastReturnedDelay = result;
@@ -624,8 +625,8 @@ namespace game {
         const DWORD now = GetTickCount();
         if (enabled == wasEnabled && (!enabled || now - lastLog < 3000)) return;
         wasEnabled = enabled; lastLog = now;
-        Log("[rapid] enabled=%d ready=%d getterCalls=%u localCalls=%u reduced=%u lastDelay=%.6f->%.6f focus=%d menu=%d panic=%d farmPaused=%d alive=%d ownerOffset=%d",
-            enabled, rapidReady.load(), delayCalls.load(), localDelayCalls.load(), reducedDelayCalls.load(),
+        Log("[rapid] enabled=%d ready=%d multiplier=%dx getterCalls=%u localCalls=%u reduced=%u lastDelay=%.6f->%.6f focus=%d menu=%d panic=%d farmPaused=%d alive=%d ownerOffset=%d",
+            enabled, rapidReady.load(), cfg.misc.rapid_fire_multiplier, delayCalls.load(), localDelayCalls.load(), reducedDelayCalls.load(),
             lastNormalDelay.load(), lastReturnedDelay.load(), GetForegroundWindow() == render::Hwnd,
             render::MenuOpen, cfg.panic, farm::SuppressFeatures(), s_local.alive, offOwner);
     }
