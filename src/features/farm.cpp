@@ -60,6 +60,7 @@ namespace {
         void* enabled = nullptr;
         bool unity = false;
         bool dismissOnly = false;
+        bool direct = false;
     };
     struct TextType { void* type; void* getter; };
     struct Control {
@@ -78,6 +79,7 @@ namespace {
     std::vector<Control> controls;
     void *findObjects, *componentGo, *goTransform, *goActive, *objectName, *transformParent, *goChildren;
     void *hudType, *unityEventGetter, *unityEventInvoke, *goSendMessage;
+    void *goComponents, *behaviourType, *behaviourEnabled;
     bool hudPresent = false, modalPresent = false;
 
     void* Klass(const char* name, const char* space = "UnityEngine") {
@@ -205,18 +207,69 @@ namespace {
         bool inactive = false;
         std::string result;
         std::unordered_set<std::string> seen;
+        bool closePrompt = false;
         for (const auto& text : textTypes) {
             Root labels(Call(goChildren, gameObject, {text.type, &inactive}));
             for (void* label : Array(labels.pointer)) {
                 const std::string value = il2::Str(Call(text.getter, label));
                 if (value.empty()) continue;
-                if (!seen.insert(logic::Normalize(value)).second) continue;
+                closePrompt |= logic::HasClosePrompt(value);
+                if (result.size() >= 1024 || !seen.insert(logic::Normalize(value)).second) continue;
                 if (!result.empty()) result += ' ';
-                result += value;
-                if (result.size() > 1024) break;
+                result += value.substr(0,1024-result.size());
             }
         }
+        // Keep the dismissal prompt even when a long reward list precedes it.
+        if (closePrompt && !logic::HasClosePrompt(result)) result += " Press anywhere to close";
         return result;
+    }
+    void ScanNoticeDismissals(bool diagnostic) {
+        if (!goComponents || !behaviourType || !behaviourEnabled || (hudPresent && !modalPresent)) return;
+        std::unordered_set<void*> inspected;
+        for (const auto& text : textTypes) {
+            Root labels(Find(text.type));
+            for (void* label : Array(labels.pointer)) {
+                if (!logic::HasClosePrompt(il2::Str(Call(text.getter,label)))) continue;
+                void* promptGo = Call(componentGo,label);
+                if (!ActiveObject(promptGo)) continue;
+                Root prompt(promptGo);
+                void* transform = Call(goTransform,promptGo);
+                for (int depth=0; transform && depth<10; ++depth) {
+                    void* owner = Call(componentGo,transform);
+                    const auto path = Path(owner);
+                    const auto content = Label(owner);
+                    // Inspect only the active notice containing the actual prompt.
+                    bool foundReceiver = false;
+                    if (logic::IsNoticeDismiss(path,content)) {
+                        if (!inspected.insert(owner).second) break;
+                        modalPresent = true;
+                        Root scripts(Call(goComponents,owner,{behaviourType}));
+                        for (void* script : Array(scripts.pointer)) {
+                            if (!Bool(behaviourEnabled,script)) continue;
+                            auto* click = Method(il2::api.object_get_class(script),"OnClick",{});
+                            if (!click) continue;
+                            const bool duplicate = std::any_of(controls.begin(),controls.end(),[&](const Control& c) {
+                                return c.backend.direct && c.object == script;
+                            });
+                            if (duplicate) { foundReceiver = true; break; }
+                            Backend backend{behaviourType,click,behaviourEnabled,false,true,true};
+                            Control control{script,owner,backend,path,content};
+                            control.objectRoot = std::make_unique<Root>(script);
+                            control.gameObjectRoot = std::make_unique<Root>(owner);
+                            control.action = logic::Action::Reward;
+                            control.modal = true;
+                            if (diagnostic) Log("[farm] notice handler '%s' text='%s'",path.c_str(),content.c_str());
+                            // A verified receiver takes priority over a collider that may have no OnClick.
+                            controls.insert(controls.begin(),std::move(control));
+                            foundReceiver = true;
+                            break;
+                        }
+                    }
+                    if (foundReceiver) break;
+                    transform = Call(transformParent,transform);
+                }
+            }
+        }
     }
     void Scan(bool diagnostic) {
         controls.clear();
@@ -265,6 +318,7 @@ namespace {
                 controls.push_back(std::move(control));
             }
         }
+        ScanNoticeDismissals(diagnostic);
         // A foreground notice must close before a Continue button underneath.
         std::stable_sort(controls.begin(), controls.end(), [](const Control& left, const Control& right) {
             return logic::IsNoticeDismiss(left.path, left.label) && !logic::IsNoticeDismiss(right.path, right.label);
@@ -397,7 +451,9 @@ namespace {
         const Backend backend = found->backend;
         Root retainedObject(object), retainedGo(gameObject);
         rage::Release();
-        if (backend.unity) {
+        if (backend.direct) {
+            Call(backend.click,object);
+        } else if (backend.unity) {
             Root event(Call(unityEventGetter, object));
             Call(unityEventInvoke, event.pointer);
         } else {
@@ -429,6 +485,9 @@ void Init() {
         goChildren = Method(Klass("GameObject"), "GetComponentsInChildren", {"Type", "Boolean"});
         goSendMessage = Method(Klass("GameObject"), "SendMessage", {"String", "SendMessageOptions"});
         transformParent = Method(Klass("Transform"), "get_parent", {});
+        goComponents = Method(Klass("GameObject"), "GetComponents", {"Type"});
+        behaviourType = il2::TypeObject(Klass("MonoBehaviour"));
+        behaviourEnabled = Method(Klass("Behaviour"), "get_enabled", {});
         hudType = il2::TypeObject(Klass("InGameGUI", ""));
         if (!findObjects || !objectName || !componentGo || !goTransform || !goActive || !goChildren || !transformParent || !hudType)
             throw std::runtime_error("game UI discovery unavailable");

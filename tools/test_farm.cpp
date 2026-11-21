@@ -182,6 +182,16 @@ int main() {
         Require(!IsNoticeDismiss(gunNotice + "/WeaponTile", "Available for purchase: 26"), "weapon tile must not become a dismissal target");
         Require(!IsNoticeDismiss("Lobby/Background", "Press anywhere to close"), "collider fallback must be limited to notices");
         Require(!IsNoticeDismiss(gunNotice, ""), "an unlabelled modal collider must not be clicked");
+        const std::string availablePrompt = "Now available: Available for purchase: Gun A 36 Gun B 36 New features: Dead City Map Press anywhere to close";
+        const std::string availableRoot = "UI Root/Camera/LevelFeaturesView(Clone)";
+        Require(IsNoticeDismiss(availableRoot,availablePrompt), "recorded level-feature notice must be recognized by its full text");
+        Require(Classify(availableRoot,availablePrompt) == Action::Reward, "purchase heading on the recorded notice must not block dismissal");
+        Require(!IsNoticeDismiss(availableRoot,"Now available: Available for purchase: Gun A 36 New features: Dead City"),
+                "notice text without a close prompt must not authorize a click");
+        Require(!IsNoticeDismiss(availableRoot + "/WeaponTile","Available for purchase: Gun A 36"),
+                "weapon tile must never become a notice receiver");
+        Require(HasClosePrompt(std::string(1800,'x') + " [ffffff]Press anywhere to close[-]"),
+                "close prompt after long reward text must remain discoverable");
         Controller rewards;
         Observation rewardScreen;
         rewardScreen.reward = rewardScreen.replay = true;

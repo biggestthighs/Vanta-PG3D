@@ -110,6 +110,12 @@ namespace farm::logic {
                leaf == "closebutton" || leaf == "buttonclose" || leaf == "btnclose";
     }
 
+    inline bool HasClosePrompt(const std::string& label) {
+        const auto text = Normalize(label);
+        return text.find("pressanywheretoclose") != std::string::npos ||
+               text.find("tapanywheretoclose") != std::string::npos;
+    }
+
     inline bool IsNoticeDismiss(const std::string& path, const std::string& label) {
         const std::string name = Normalize(path), text = Normalize(label);
         const bool notice = name.find("modalbannerholder") != std::string::npos ||
@@ -120,8 +126,9 @@ namespace farm::logic {
                             name.find("levelupweapons") != std::string::npos;
         // The background's descendants include both the purchase heading and
         // the close prompt. Match that explicit prompt, not a weapon tile.
-        return notice && (text.find("pressanywheretoclose") != std::string::npos ||
-                          text.find("tapanywheretoclose") != std::string::npos);
+        const bool availableScreen = text.find("nowavailable") != std::string::npos &&
+            text.find("availableforpurchase") != std::string::npos && text.find("newfeatures") != std::string::npos;
+        return (notice || availableScreen) && HasClosePrompt(label);
     }
 
     inline Action Classify(const std::string& path, const std::string& label) {

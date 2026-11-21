@@ -2,11 +2,11 @@
 
 A Windows x64 client for Pixel Gun 3D PC Edition, with a portable launcher, in-game controls and Deathmatch automation.
 
-**v0.1.16 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
+**v0.1.17 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
 
 ## Download and run
 
-Get `Vanta-v0.1.16-win64-with-source.zip` and **extract the entire ZIP** into a writable folder.
+Get `Vanta-v0.1.17-win64-with-source.zip` and **extract the entire ZIP** into a writable folder.
 
 1. Start Pixel Gun 3D and wait for the main menu.
 2. Open `Vanta.exe` and click **Load Vanta**.
