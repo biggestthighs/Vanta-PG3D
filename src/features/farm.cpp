@@ -9,6 +9,7 @@
 #include <memory>
 #include <stdexcept>
 #include <unordered_set>
+#include <unordered_map>
 
 namespace farm {
 namespace {
@@ -279,6 +280,46 @@ namespace {
     bool Has(logic::Action action) {
         return std::any_of(controls.begin(), controls.end(), [&](const auto& control) { return Eligible(control) && control.action == action; });
     }
+    // Read-only cadence telemetry in normal gameplay. Getter queries are not
+    // shots: compare the player's visible ammunition counters instead.
+    void MeasureRapidAmmo(DWORD now) {
+        struct AmmoSample { int clip; int reserve; };
+        static std::unordered_map<std::string, AmmoSample> previous;
+        static DWORD sampledAt = 0, windowAt = 0;
+        static unsigned ammoUsed = 0, samples = 0;
+        static int multiplier = 0;
+        const auto* local = game::Local();
+        const bool eligible = cfg.misc.rapid_fire && !cfg.panic && !render::MenuOpen && local && local->alive &&
+            GetForegroundWindow() == render::Hwnd && (GetAsyncKeyState(VK_LBUTTON) & 0x8000);
+        if (!eligible || multiplier != cfg.misc.rapid_fire_multiplier) {
+            previous.clear(); windowAt = now; ammoUsed = samples = 0;
+            multiplier = cfg.misc.rapid_fire_multiplier;
+            if (!eligible) return;
+        }
+        if (now - sampledAt < 200) return;
+        sampledAt = now;
+        Scan(false);
+        std::unordered_map<std::string, AmmoSample> current;
+        for (const auto& control : controls) {
+            if (control.path.find("WeaponToggles/") == std::string::npos) continue;
+            int clip = -1, reserve = -1; char extra = 0;
+            if (sscanf(control.label.c_str(), "%d/%d %c", &clip, &reserve, &extra) != 2 || clip < 0 || reserve < 0) continue;
+            current[control.path] = {clip, reserve};
+            const auto found = previous.find(control.path);
+            if (found == previous.end() || found->second.reserve != reserve) continue;
+            const int consumed = found->second.clip - clip;
+            if (consumed > 0) ammoUsed += consumed;
+        }
+        previous = std::move(current);
+        controls.clear();
+        ++samples;
+        if (now - windowAt >= 3000) {
+            const float seconds = float(now - windowAt) / 1000.f;
+            Log("[rapid-rate] requested=%dx displayedAmmoUsed=%u heldSeconds=%.2f ammoUnitsPerSecond=%.2f counters=%zu samples=%u (read-only UI sampling; reload/reserve changes excluded; not server damage)",
+                multiplier, ammoUsed, seconds, ammoUsed / seconds, previous.size(), samples);
+            windowAt = now; ammoUsed = samples = 0;
+        }
+    }
     void DisableFeatures() {
         misc::ReleaseInput();
         cfg.aim.enabled = cfg.silent.enabled = cfg.trig.enabled = false;
@@ -473,7 +514,16 @@ void Tick() {
         Log("[farm] started; kill limit=%d", cfg.farm.kill_limit);
     }
     const bool diagnostic = inspect.exchange(false);
-    if (!ready || (!running && !diagnostic)) return;
+    if (!ready) return;
+    if (!running && !diagnostic) {
+        try { MeasureRapidAmmo(now); }
+        catch (const std::exception& error) {
+            static DWORD lastError = 0;
+            if (now - lastError >= 10000) { Log("[rapid-rate] unavailable: %s", error.what()); lastError = now; }
+            controls.clear();
+        }
+        return;
+    }
     try {
         static DWORD diagnosticAt = 0;
         const bool logButtons = diagnostic || now - diagnosticAt >= 30000;

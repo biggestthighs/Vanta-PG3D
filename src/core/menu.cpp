@@ -161,7 +161,7 @@ namespace menu {
         ImGui::SliderInt("fire rate multiplier", &cfg.misc.rapid_fire_multiplier, 1, 50, "%dx");
         ImGui::TextDisabled("1x Normal   |   2x, 3x...   |   50x Super fast (requested)");
         ImGui::EndDisabled();
-        Hint(game::RapidFireReady() ? "Scales the returned weapon cooldown: 1x leaves it normal, 2x halves the delay, 3x divides it by three. This is a requested multiplier, not a measured firing rate. Diagnostics are written to pg3d_core.log. Other weapon timers or server rules can limit shots. Farm pauses this setting." : "Rapid fire unavailable: this build's effective cooldown method could not be verified.");
+        Hint(game::RapidFireReady() ? "Scales the returned weapon cooldown: 1x leaves it normal, 2x halves the delay, 3x divides it by three. This is a requested multiplier, not a measured firing rate. Hold fire for at least three seconds at 1x, then 50x: read-only ammo-rate diagnostics are written to pg3d_core.log. Other weapon timers or server rules can limit shots. Farm pauses this setting." : "Rapid fire unavailable: this build's effective cooldown method could not be verified.");
         Section("AIMBOT");
         Toggle("enabled", &cfg.aim.enabled);
         KeyRow("key", &cfg.aim.key);
