@@ -559,64 +559,76 @@ namespace game {
 #endif
 
 #ifdef CORE_BUILD
-    using ReadFireField = void(*)(void*, void*, void*);
-    using WriteFireField = void(*)(void*, void*, void*);
-    using FireHandleNew = uintptr_t(*)(void*, bool);
-    using FireHandleFree = void(*)(uintptr_t);
-    static ReadFireField readFireField = nullptr;
-    static WriteFireField writeFireField = nullptr;
-    static FireHandleNew retainFireObject = nullptr;
-    static FireHandleFree releaseFireObject = nullptr;
-    static void* fireFields[2]{};
-    bool RapidFireReady() { return fireFields[0] && fireFields[1]; }
-    static void InitRapidFire() {
-        const HMODULE assembly = GetModuleHandleW(L"GameAssembly.dll");
-        readFireField = reinterpret_cast<ReadFireField>(GetProcAddress(assembly, "il2cpp_field_get_value"));
-        writeFireField = reinterpret_cast<WriteFireField>(GetProcAddress(assembly, "il2cpp_field_set_value"));
-        retainFireObject = reinterpret_cast<FireHandleNew>(GetProcAddress(assembly, "il2cpp_gchandle_new"));
-        releaseFireObject = reinterpret_cast<FireHandleFree>(GetProcAddress(assembly, "il2cpp_gchandle_free"));
-        auto fieldType = reinterpret_cast<void*(*)(void*)>(GetProcAddress(assembly, "il2cpp_field_get_type"));
-        auto fieldFlags = reinterpret_cast<int(*)(void*)>(GetProcAddress(assembly, "il2cpp_field_get_flags"));
-        fireFields[0] = fireFields[1] = nullptr;
-        if (!kWeapon || !readFireField || !writeFireField || !retainFireObject || !releaseFireObject || !fieldType || !fieldFlags) return;
-        void* iterator = nullptr;
-        while (void* field = il2::api.class_get_fields(kWeapon, &iterator)) {
-            const char* name = il2::api.field_get_name(field);
-            const int slot = !strcmp(name, "bulletDelay") ? 0 : !strcmp(name, "shootDelay") ? 1 : -1;
-            if (slot < 0 || (fieldFlags(field) & 16)) continue;
-            void* type = il2::api.class_from_type(fieldType(field));
-            if (type && !strcmp(il2::api.class_get_name(type), "Single")) fireFields[slot] = field;
-        }
-        Log("[rapid] reflected float delay fields ready=%d; experimental, 5ms requested interval", RapidFireReady());
+    using FireDelayFn = float(__fastcall*)(void*, void*);
+    static FireDelayFn originalFireDelay = nullptr;
+    static std::atomic<bool> rapidReady{false};
+    static std::atomic<unsigned> delayCalls{0}, localDelayCalls{0}, reducedDelayCalls{0};
+    static std::atomic<float> lastNormalDelay{0.f}, lastReturnedDelay{0.f};
+    bool RapidFireReady() { return rapidReady; }
+    static bool LocalRapidWeapon(void* weapon) {
+        return s_hasLocal && offOwner >= 0 && Ok(weapon) &&
+            !IsBadReadPtr(static_cast<uint8_t*>(weapon) + offOwner, sizeof(void*)) &&
+            *reinterpret_cast<void**>(static_cast<uint8_t*>(weapon) + offOwner) == s_local.obj;
     }
-    struct RapidFireScope {
-        void* weapon = nullptr;
-        uintptr_t handle = 0;
-        float original[2]{};
-        bool changed[2]{};
-        explicit RapidFireScope(bool localUpdate) {
-            if (!localUpdate || !RapidFireReady() || !cfg.misc.rapid_fire || cfg.panic || render::MenuOpen ||
-                farm::SuppressFeatures() || !s_local.alive || GetForegroundWindow() != render::Hwnd) return;
-            weapon = LocalWeapon();
-            if (!Ok(weapon) || il2::api.object_get_class(weapon) != kWeapon) return;
-            handle = retainFireObject(weapon, true);
-            if (!handle) return;
-            for (int i = 0; i < 2; ++i) {
-                readFireField(weapon, fireFields[i], &original[i]);
-                if (!std::isfinite(original[i]) || original[i] < 0.f || original[i] > 60.f) continue;
-                float interval = std::min(original[i], 0.005f);
-                if (interval == original[i]) continue;
-                writeFireField(weapon, fireFields[i], &interval);
-                changed[i] = true;
-            }
+    static float __fastcall hkFireDelay(void* weapon, void* method) {
+        const float normal = originalFireDelay(weapon, method);
+        ++delayCalls;
+        if (!LocalRapidWeapon(weapon)) return normal;
+        ++localDelayCalls;
+        lastNormalDelay = normal;
+        float result = normal;
+        if (cfg.misc.rapid_fire && !cfg.panic && !render::MenuOpen &&
+            !farm::SuppressFeatures() && s_local.alive && GetForegroundWindow() == render::Hwnd &&
+            std::isfinite(normal) && normal > 0.f && normal <= 60.f) {
+            result = std::min(normal, 0.005f);
+            if (result < normal) ++reducedDelayCalls;
         }
-        ~RapidFireScope() {
-            if (!handle) return;
-            for (int i = 0; i < 2; ++i) if (changed[i]) writeFireField(weapon, fireFields[i], &original[i]);
-            releaseFireObject(handle);
+        lastReturnedDelay = result;
+        return result;
+    }
+    static void InitRapidFire() {
+        // Static analysis for this build traced this WeaponSounds float getter
+        // into Player_move_c's next-shot deadline (including its shot routine).
+        // Verify runtime metadata and bytes before installing; no guessed writes.
+        constexpr uintptr_t verifiedRva = 0x87DC80;
+        const uint8_t prefix[] = {0x48,0x89,0x5C,0x24,0x18,0x57,0x48,0x83,0xEC,0x40};
+        const auto base = ModuleBase(L"GameAssembly.dll");
+        void* target = reinterpret_cast<void*>(base + verifiedRva);
+        auto returnType = reinterpret_cast<void*(*)(void*)>(GetProcAddress(GetModuleHandleW(L"GameAssembly.dll"), "il2cpp_method_get_return_type"));
+        auto methodFlags = reinterpret_cast<uint32_t(*)(void*, uint32_t*)>(GetProcAddress(GetModuleHandleW(L"GameAssembly.dll"), "il2cpp_method_get_flags"));
+        if (!kWeapon || !returnType || !methodFlags || !InModule(reinterpret_cast<uintptr_t>(target), L"GameAssembly.dll") ||
+            memcmp(target, prefix, sizeof(prefix))) {
+            Log("[rapid] effective cooldown hook unavailable: build signature mismatch"); return;
         }
-        RapidFireScope(const RapidFireScope&) = delete;
-    };
+        void* iterator = nullptr;
+        while (void* method = il2::api.class_get_methods(kWeapon, &iterator)) {
+            void* pointer = il2::api.method_get_pointer ? il2::api.method_get_pointer(method) : *reinterpret_cast<void**>(method);
+            if (pointer != target || il2::api.method_get_param_count(method) != 0) continue;
+            uint32_t implementation = 0;
+            if (methodFlags(method, &implementation) & 16) continue;
+            void* type = il2::api.class_from_type(returnType(method));
+            if (!type || strcmp(il2::api.class_get_name(type), "Single")) continue;
+            const auto created = MH_CreateHook(target, &hkFireDelay, reinterpret_cast<void**>(&originalFireDelay));
+            const auto enabled = created == MH_OK ? MH_EnableHook(target) : MH_ERROR_NOT_CREATED;
+            rapidReady = created == MH_OK && enabled == MH_OK;
+            Log("[rapid] effective cooldown getter=%s rva=%llX create=%d enable=%d ready=%d",
+                il2::api.method_get_name(method), static_cast<unsigned long long>(verifiedRva), created, enabled, rapidReady.load());
+            return;
+        }
+        Log("[rapid] effective cooldown hook unavailable: runtime method signature not verified");
+    }
+    static void LogRapidFire() {
+        static DWORD lastLog = 0;
+        static bool wasEnabled = false;
+        const bool enabled = cfg.misc.rapid_fire;
+        const DWORD now = GetTickCount();
+        if (enabled == wasEnabled && (!enabled || now - lastLog < 3000)) return;
+        wasEnabled = enabled; lastLog = now;
+        Log("[rapid] enabled=%d ready=%d getterCalls=%u localCalls=%u reduced=%u lastDelay=%.6f->%.6f focus=%d menu=%d panic=%d farmPaused=%d alive=%d ownerOffset=%d",
+            enabled, rapidReady.load(), delayCalls.load(), localDelayCalls.load(), reducedDelayCalls.load(),
+            lastNormalDelay.load(), lastReturnedDelay.load(), GetForegroundWindow() == render::Hwnd,
+            render::MenuOpen, cfg.panic, farm::SuppressFeatures(), s_local.alive, offOwner);
+    }
 #endif
 
     static void __fastcall hkUpdate(void* self, void*) {
@@ -624,7 +636,6 @@ namespace game {
 #ifdef CORE_BUILD
         const bool wrap = s_ready && s_hasLocal && self == s_local.obj;
         if (wrap) { TpEarly(); rage::WrapBegin(self, false); }
-        RapidFireScope rapid(wrap);
 #endif
         if (oUpdate) reinterpret_cast<void(__fastcall*)(void*, void*)>(oUpdate)(self, nullptr);
 #ifdef CORE_BUILD
@@ -641,6 +652,7 @@ namespace game {
             Tick();
 #ifdef CORE_BUILD
             misc::Tick();
+            LogRapidFire();
             probe::OnTick();
 #endif
         }
@@ -656,7 +668,6 @@ namespace game {
         custommodel::ServiceShutdown();
         const bool wrap = s_ready && s_hasLocal;
         if (wrap) rage::WrapBegin(self, true);
-        RapidFireScope rapid(wrap && self == LocalWeapon());
 #endif
         if (oWeaponUpdate) reinterpret_cast<void(__fastcall*)(void*, void*)>(oWeaponUpdate)(self, nullptr);
 #ifdef CORE_BUILD
@@ -715,9 +726,6 @@ namespace game {
         kDmg = il2::Class("PlayerDamageable");
         Log("[game] classes player=%p weapon=%p camera=%p", kPlayer, kWeapon, kCamera);
         if (!kPlayer || !kCamera || !kTransform) { Log("[game] core classes missing"); return false; }
-#ifdef CORE_BUILD
-        InitRapidFire();
-#endif
 
         offNick = il2::FieldOffset(kPlayer, "nickLabel");
         offTr = il2::FieldOffset(kPlayer, "myPlayerTransform");
@@ -860,6 +868,9 @@ namespace game {
         const void* wupd = kWeapon ? il2::MethodPtr(kWeapon, "Update", 0) : nullptr;
         const MH_STATUS mhs = MH_Initialize();
         if (mhs == MH_OK || mhs == MH_ERROR_ALREADY_INITIALIZED) {
+#ifdef CORE_BUILD
+            InitRapidFire();
+#endif
             if (upd) MH_CreateHook(const_cast<void*>(upd), &hkUpdate, &oUpdate);
             if (late) MH_CreateHook(const_cast<void*>(late), &hkLateUpdate, &oLateUpdate);
             if (wupd) MH_CreateHook(const_cast<void*>(wupd), &hkWeaponUpdate, &oWeaponUpdate);

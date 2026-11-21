@@ -158,7 +158,7 @@ namespace menu {
         ImGui::BeginDisabled(!game::RapidFireReady());
         Toggle("rapid fire", &cfg.misc.rapid_fire);
         ImGui::EndDisabled();
-        Hint(game::RapidFireReady() ? "Requests a 5ms weapon delay during local updates and restores normal values afterward. Frame rate, weapon mechanics and server validation can limit the actual rate. Farm pauses this setting." : "Rapid fire unavailable: this build's weapon delay fields could not be verified.");
+        Hint(game::RapidFireReady() ? "Returns a 5ms effective firing delay for your weapon. Diagnostic counters are written to pg3d_core.log. Frame rate, weapon mechanics and server validation can still limit shots. Farm pauses this setting." : "Rapid fire unavailable: this build's effective cooldown method could not be verified.");
         Section("AIMBOT");
         Toggle("enabled", &cfg.aim.enabled);
         KeyRow("key", &cfg.aim.key);

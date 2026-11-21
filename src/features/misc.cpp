@@ -1,8 +1,8 @@
 #include "features.h"
 #include "../core/config.h"
 
-// General camera and movement features. Experimental rapid fire is scoped to
-// local updates in game.cpp and uses type-checked reflected weapon fields.
+// General camera and movement features. Rapid fire hooks the verified effective
+// weapon cooldown getter in game.cpp; it performs no weapon-field writes.
 namespace misc {
     static DWORD s_jump = 0;
 
