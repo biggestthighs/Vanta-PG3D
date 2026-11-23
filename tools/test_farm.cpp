@@ -1,4 +1,5 @@
 #include "../src/features/farm_state.h"
+#include "../src/features/farm_rewards.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -192,6 +193,35 @@ int main() {
                 "weapon tile must never become a notice receiver");
         Require(HasClosePrompt(std::string(1800,'x') + " [ffffff]Press anywhere to close[-]"),
                 "close prompt after long reward text must remain discoverable");
+        {
+            using namespace farm::rewards;
+            const auto coins=Parse("Results/CoinReward/Amount","[ffff00]4[-]");
+            Require(coins && coins->kind=="Coins" && coins->amount==4,"reward path must identify a bare coin amount");
+            const auto gems=Parse("UniversalRewardView/Cell","Gems 5");
+            Require(gems && gems->kind=="Gems" && gems->amount==5,"reward title must identify gems");
+            const auto pass=Parse("Results/PassXP","15 Pass XP");
+            Require(pass && pass->kind=="Pass XP","pass XP must be separate from XP");
+            Require(!Parse("ProgressRoad/Cell","Coins 50"),"future route rewards must not be counted");
+            Require(!Parse("Notice/Weapon","Available for purchase 36"),"purchase unlocks must not count as weapons");
+            Require(!Parse("Results/Trophy","-20 Trophies"),"losses must not count as rewards");
+            Require(!Parse("Reward","50 Coins 5 Gems"),"aggregate cells must not assign an ambiguous amount");
+            const auto parts=Parse("Reward/WeaponParts","25 Heavy Persuader parts");
+            Require(parts && parts->kind=="Weapon parts" && parts->item=="Heavy Persuader","named weapon parts must retain their identity");
+            Tracker tracker;
+            tracker.Commit("match/1",false,{*coins});
+            tracker.Commit("match/1",false,{*coins});
+            tracker.Commit("claim/1",true,{{"Coins","",50},*gems});
+            Require(tracker.totals.at("Coins\n").match==4 && tracker.totals.at("Coins\n").progress==50,
+                    "same claim must count once and milestone rewards must be separate");
+            tracker.Commit("match/1",false,{*coins,{"XP","",20}});
+            Require(tracker.totals.at("Coins\n").match==4 && tracker.totals.at("XP\n").match==20,
+                    "later results must add missing rewards without duplicating earlier ones");
+            tracker.Commit("claim/2",true,{});
+            Require(tracker.unread.size()==1,"unrecognized claims must be reported");
+            tracker.Commit("claim/2",true,{*gems});
+            Require(tracker.unread.empty() && tracker.totals.at("Gems\n").progress==10,
+                    "an unread screen may later resolve and identical later claims must still count");
+        }
         Controller rewards;
         Observation rewardScreen;
         rewardScreen.reward = rewardScreen.replay = true;

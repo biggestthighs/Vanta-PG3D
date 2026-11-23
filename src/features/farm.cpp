@@ -31,6 +31,9 @@ namespace {
     std::string lastAction;
     int actionAttempts = 0;
     int reportedKills = -1;
+    rewards::Tracker rewardTracker;
+    unsigned rewardMatch = 0, rewardClaim = 0;
+    std::vector<rewards::Entry> matchRewards;
     using FieldType = void*(*)(void*);
     using FieldFlags = int(*)(void*);
     using FieldRead = void(*)(void*, void*, void*);
@@ -54,6 +57,14 @@ namespace {
         Root(const Root&) = delete;
     };
 
+    struct PendingReward {
+        std::string event, path;
+        bool progress = false;
+        std::vector<rewards::Entry> entries;
+        std::unique_ptr<Root> owner;
+    };
+
+    std::optional<PendingReward> pendingReward;
     struct Backend {
         void* type = nullptr;
         void* click = nullptr;
@@ -271,6 +282,57 @@ namespace {
             }
         }
     }
+    std::vector<rewards::Entry> ReadRewards(bool progress) {
+        std::vector<rewards::Entry> result;
+        std::unordered_set<void*> cells;
+        for (const auto& type : textTypes) {
+            Root labels(Find(type.type));
+            for (void* label : Array(labels.pointer)) {
+                void* go = Call(componentGo,label);
+                if (!ActiveObject(go)) continue;
+                const auto path = logic::Normalize(Path(go));
+                const bool inScope = progress ? path.find("universalrewardview") != std::string::npos :
+                    path.find("networkstarttablengui") != std::string::npos &&
+                    (path.find("endinterface") != std::string::npos || path.find("expprogressview") != std::string::npos);
+                if (!inScope) continue;
+                const auto value = il2::Str(Call(type.getter,label));
+                if (value.find_first_of("0123456789") == std::string::npos) continue;
+                void* transform = Call(goTransform,go);
+                for (int depth=0; transform && depth<3; ++depth) {
+                    void* cell=Call(componentGo,transform);
+                    auto entry=rewards::Parse(Path(cell),Label(cell));
+                    if (entry) {
+                        if (cells.insert(cell).second) result.push_back(*entry);
+                        break;
+                    }
+                    transform=Call(transformParent,transform);
+                }
+            }
+        }
+        return result;
+    }
+    void ObserveRewards() {
+        if (!running) return;
+        if (pendingReward) {
+            const bool stillVisible = std::any_of(controls.begin(),controls.end(),[](const Control& c) {
+                return c.gameObject == pendingReward->owner->pointer && c.path == pendingReward->path;
+            });
+            if (!stillVisible) {
+                rewardTracker.Commit(pendingReward->event,pendingReward->progress,pendingReward->entries);
+                for (const auto& entry : pendingReward->entries)
+                    Log("[farm-rewards] %s %lld %s %s",pendingReward->event.c_str(),
+                        static_cast<long long>(entry.amount),entry.kind.c_str(),entry.item.c_str());
+                pendingReward.reset();
+            }
+        }
+        const bool results=std::any_of(controls.begin(),controls.end(),[](const Control& c) {
+            return c.path.find("EndInterface/") != std::string::npos;
+        });
+        if (results) {
+            auto entries=ReadRewards(false);
+            if (!entries.empty()) matchRewards=std::move(entries);
+        }
+    }
     void Scan(bool diagnostic) {
         controls.clear();
         hudPresent = modalPresent = false;
@@ -319,6 +381,8 @@ namespace {
             }
         }
         ScanNoticeDismissals(diagnostic);
+        try { ObserveRewards(); }
+        catch (const std::exception& error) { Log("[farm-rewards] observation unavailable: %s",error.what()); }
         // A foreground notice must close before a Continue button underneath.
         std::stable_sort(controls.begin(), controls.end(), [](const Control& left, const Control& right) {
             return logic::IsNoticeDismiss(left.path, left.label) && !logic::IsNoticeDismiss(right.path, right.label);
@@ -425,6 +489,8 @@ namespace {
         status.totalKills = controller.totalKills;
         status.seconds = startedAt ? (GetTickCount() - startedAt) / 1000.0 : 0;
         status.message = message;
+        status.rewards = rewardTracker.Snapshot();
+        status.unreadRewards = static_cast<int>(rewardTracker.unread.size());
     }
     std::string Message(logic::Phase phase) {
         switch (phase) {
@@ -450,6 +516,25 @@ namespace {
         void* gameObject = found->gameObject;
         const Backend backend = found->backend;
         Root retainedObject(object), retainedGo(gameObject);
+        std::optional<PendingReward> collected;
+        try {
+        if (action == logic::Action::Reward && !pendingReward) {
+            const auto normalized = logic::Normalize(path);
+            const bool progress = normalized.find("universalrewardview") != std::string::npos;
+            const bool match = normalized.find("endinterface") != std::string::npos;
+            if (progress || match) {
+                PendingReward pending;
+                pending.event = progress ? "claim/"+std::to_string(++rewardClaim) : "match/"+std::to_string(rewardMatch);
+                pending.path = path;
+                pending.progress = progress;
+                pending.entries = progress ? ReadRewards(true) : matchRewards;
+                pending.owner = std::make_unique<Root>(gameObject);
+                collected = std::move(pending);
+            }
+        }
+        } catch (const std::exception& error) {
+            Log("[farm-rewards] claim snapshot unavailable: %s",error.what());
+        }
         rage::Release();
         if (backend.direct) {
             Call(backend.click,object);
@@ -461,6 +546,7 @@ namespace {
             int dontRequireReceiver = 1;
             Call(goSendMessage, gameObject, {message.pointer, &dontRequireReceiver});
         }
+        if (collected) pendingReward = std::move(collected);
         controller.Clicked(action);
         actionGate.Clicked(now);
         scanAt = 0;
@@ -542,7 +628,7 @@ void SettingsToSave(Cfg& settings) {
     settings.farm = farmSettings;
     settings.world = worldSettings;
 }
-void Shutdown() { command = 0; RestoreProfile(false); controls.clear(); SetStatus("Stopped"); }
+void Shutdown() { pendingReward.reset(); command = 0; RestoreProfile(false); controls.clear(); SetStatus("Stopped"); }
 
 void Tick() {
     // Unity callbacks can re-enter while a button handler is running.
@@ -565,6 +651,10 @@ void Tick() {
             profile = cfg;
         }
         controller = {};
+        rewardTracker = {};
+        rewardMatch = rewardClaim = 0;
+        matchRewards.clear();
+        pendingReward.reset();
         running = true;
         combat = false;
         startedAt = now;
@@ -616,7 +706,11 @@ void Tick() {
         combat = decision.combat;
         if (combat) EnableCombat();
         else if (profileCombat || decision.newMatch || cfg.silent.enabled || cfg.aim.enabled || cfg.trig.enabled) DisableFeatures();
-        if (decision.newMatch) Log("[farm] match started; kill counter reset");
+        if (decision.newMatch) {
+            ++rewardMatch;
+            matchRewards.clear();
+            Log("[farm] match started; kill counter reset");
+        }
         if (controller.inMatch && (decision.newMatch || controller.kills != reportedKills)) {
             reportedKills = controller.kills;
             Log("[farm] game kills=%d limit=%d combat=%d", controller.kills, cfg.farm.kill_limit, combat.load());

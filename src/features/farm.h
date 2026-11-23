@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include "farm_rewards.h"
 
 struct Cfg;
 
@@ -12,6 +13,8 @@ namespace farm {
         int totalKills = 0;
         double seconds = 0;
         std::string message = "Stopped";
+        std::vector<rewards::Total> rewards;
+        int unreadRewards = 0;
     };
     void Init();
     void Tick();

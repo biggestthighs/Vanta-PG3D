@@ -346,6 +346,22 @@ namespace menu {
         if (ImGui::Button("inspect game buttons", {180, 0})) farm::Inspect();
         Hint("Start from Deathmatch or the lobby, then close this menu. Farm uses silent aim and auto-fire until the kill limit, then switches gameplay cheats off until the next match. Set zero kills for an idle run. Rewards, replay and respawn use recognized game controls. Your normal settings return when you stop. Keep the game focused.");
         ImGui::Dummy({0, 6});
+        Section("REWARDS THIS RUN");
+        if (ImGui::BeginTable("##farm-rewards",4,ImGuiTableFlags_SizingStretchProp)) {
+            for (const char* heading : {"Reward","Match","Progress Road","Total"}) ImGui::TableSetupColumn(heading);
+            ImGui::TableHeadersRow();
+            for (const auto& total : status.rewards) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn(); ImGui::TextWrapped("%s%s%s",total.kind.c_str(),total.item.empty()?"":" / ",total.item.c_str());
+                ImGui::TableNextColumn(); ImGui::Text("%lld",static_cast<long long>(total.match));
+                ImGui::TableNextColumn(); ImGui::Text("%lld",static_cast<long long>(total.progress));
+                ImGui::TableNextColumn(); ImGui::Text("%lld",static_cast<long long>(total.match+total.progress));
+            }
+            ImGui::EndTable();
+        }
+        if (status.rewards.empty()) ImGui::TextDisabled("Waiting for recognized rewards");
+        if (status.unreadRewards) ImGui::TextWrapped("%d reward screens had unrecognized amounts. Totals may be incomplete.",status.unreadRewards);
+        Hint("Counts recognized rewards after their claim screen closes. Resets when you start a new Farm run. Available-for-purchase notices are excluded.");
         Section("THIS SESSION");
         Clock("session time ", render::SessionSec);
         Clock("in a match   ", render::MatchSec);
