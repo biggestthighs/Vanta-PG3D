@@ -346,6 +346,8 @@ namespace menu {
         if (ImGui::Button("inspect game buttons", {180, 0})) farm::Inspect();
         Hint("Start from Deathmatch or the lobby, then close this menu. Farm uses silent aim and auto-fire until the kill limit, then switches gameplay cheats off until the next match. Set zero kills for an idle run. Rewards, replay and respawn use recognized game controls. Your normal settings return when you stop. Keep the game focused.");
         ImGui::Dummy({0, 6});
+        ImGui::Text("Recovery checks  %u",status.recoveries);
+        if (status.frameStillSeconds >= 10) ImGui::Text("Scene unchanged for %u seconds",status.frameStillSeconds);
         Section("REWARDS THIS RUN");
         if (ImGui::BeginTable("##farm-rewards",4,ImGuiTableFlags_SizingStretchProp)) {
             for (const char* heading : {"Reward","Match","Progress Road","Total"}) ImGui::TableSetupColumn(heading);

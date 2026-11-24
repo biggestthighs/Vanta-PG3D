@@ -15,7 +15,11 @@ namespace farm {
         std::string message = "Stopped";
         std::vector<rewards::Total> rewards;
         int unreadRewards = 0;
+        unsigned recoveries = 0;
+        unsigned frameStillSeconds = 0;
     };
+    bool NeedsFrameCheck();
+    void ObserveFrame(uint64_t hash, uint32_t now);
     void Init();
     void Tick();
     void Shutdown();

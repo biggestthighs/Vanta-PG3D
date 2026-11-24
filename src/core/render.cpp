@@ -93,6 +93,52 @@ namespace render {
         return CallWindowProcW(s_wnd, h, msg, wp, lp);
     }
 
+    static std::atomic<bool> frameStopping{false};
+    static std::recursive_mutex farmFrameMutex;
+    static ID3D11Texture2D* farmFrame = nullptr;
+    static bool farmFramePending = false;
+    static DWORD farmFrameAt = 0;
+    static void ClearFarmFrame() {
+        std::lock_guard<std::recursive_mutex> lock(farmFrameMutex);
+        if (farmFrame) { farmFrame->Release(); farmFrame = nullptr; }
+        farmFramePending = false;
+    }
+    static void CheckFarmFrame(IDXGISwapChain* swap) {
+        std::lock_guard<std::recursive_mutex> lock(farmFrameMutex);
+        if (frameStopping) return;
+        if (!farm::NeedsFrameCheck() || MenuOpen || cfg.panic) { ClearFarmFrame(); return; }
+        const DWORD now = GetTickCount();
+        if (farmFramePending) {
+            D3D11_MAPPED_SUBRESOURCE pixels{};
+            if (FAILED(s_ctx->Map(farmFrame,0,D3D11_MAP_READ,D3D11_MAP_FLAG_DO_NOT_WAIT,&pixels))) return;
+            D3D11_TEXTURE2D_DESC desc{};
+            farmFrame->GetDesc(&desc);
+            uint64_t hash = 1469598103934665603ull;
+            for (unsigned y=1; y<18; ++y) for (unsigned x=1; x<32; ++x) {
+                const auto* pixel = static_cast<const uint8_t*>(pixels.pData)+(desc.Height*y/18)*pixels.RowPitch+(desc.Width*x/32)*4;
+                for (int channel=0; channel<3; ++channel) hash = (hash ^ (pixel[channel]>>3))*1099511628211ull;
+            }
+            s_ctx->Unmap(farmFrame,0);
+            farm::ObserveFrame(hash,now);
+            farmFramePending = false;
+        }
+        if (now-farmFrameAt < 2000) return;
+        farmFrameAt = now;
+        ID3D11Texture2D* backbuffer = nullptr;
+        if (FAILED(swap->GetBuffer(0,__uuidof(ID3D11Texture2D),reinterpret_cast<void**>(&backbuffer)))) return;
+        D3D11_TEXTURE2D_DESC desc{};
+        backbuffer->GetDesc(&desc);
+        if (desc.SampleDesc.Count == 1 && (desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM || desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM)) {
+            if (!farmFrame) {
+                desc.Usage = D3D11_USAGE_STAGING;
+                desc.BindFlags = desc.MiscFlags = 0;
+                desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+                s_dev->CreateTexture2D(&desc,nullptr,&farmFrame);
+            }
+            if (farmFrame) { s_ctx->CopyResource(farmFrame,backbuffer); farmFramePending = true; }
+        }
+        backbuffer->Release();
+    }
     HRESULT __stdcall hkPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
         if (!s_init) {
             s_swap = sc;
@@ -119,6 +165,7 @@ namespace render {
             }
         }
 
+        if (s_imgui && s_dev && s_ctx) CheckFarmFrame(sc);
         if (s_imgui) {
             ImGui_ImplDX11_NewFrame();
             ImGui_ImplWin32_NewFrame();
@@ -174,6 +221,7 @@ namespace render {
     }
 
     HRESULT __stdcall hkResize(IDXGISwapChain* sc, UINT a, UINT b, UINT c, DXGI_FORMAT f, UINT g) {
+        ClearFarmFrame();
         if (s_rtv) { s_rtv->Release(); s_rtv = nullptr; }
         const HRESULT r = oResize(sc, a, b, c, f, g);
         if (SUCCEEDED(r) && s_init) { s_swap = sc; CreateRtv(); }
@@ -239,6 +287,8 @@ namespace render {
     bool Ready() { return s_init; }
 
     void Shutdown() {
+        frameStopping = true;
+        ClearFarmFrame();
         if (s_wnd && Hwnd) { SetWindowLongPtrW(Hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(s_wnd)); s_wnd = nullptr; }
         if (s_vt && oPresent) {
             DWORD old = 0;

@@ -2,11 +2,11 @@
 
 A Windows x64 client for Pixel Gun 3D PC Edition, with a portable launcher, in-game controls and Deathmatch automation.
 
-**v0.1.18 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
+**v0.1.19 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
 
 ## Download and run
 
-Get `Vanta-v0.1.18-win64-with-source.zip` and **extract the entire ZIP** into a writable folder.
+Get `Vanta-v0.1.19-win64-with-source.zip` and **extract the entire ZIP** into a writable folder.
 
 1. Start Pixel Gun 3D and wait for the main menu.
 2. Open `Vanta.exe` and click **Load Vanta**.
@@ -76,3 +76,5 @@ Click **Update Vanta** in the launcher after unloading the DLL with END. The hid
 Rapid-fire performance is still unresolved: 50x has been observed at the cooldown getter but does not establish 50x actual firing. For diagnostics, hold fire for three seconds at 1x and 50x without reloading or changing weapons. `[rapid-rate]` records read-only displayed-ammo consumption; this is client-side telemetry, not accepted server damage. v0.1.13 additionally scales the verified IEnumerator(Single) factory used by the newer weapon system's inline bulletDelay step. `[rapid-scheduler]` logs actual wait-factory calls and incoming/scaled arguments. This additional path is statically traced but its live rate improvement remains unverified.
 
 Farm shows automatically observed rewards for the current run, with separate match and claimed Progress Road totals. Counts are based on readable reward labels after a claim screen closes. Unrecognized screens are flagged and totals may be incomplete. Purchase-availability notices and future Progress Road milestones are excluded. A new Farm run resets the totals.
+
+Farm checks unchanged menus every ten seconds, rescans controls and retries recognized actions with increasing delays. Recovery can cycle through equivalent controls and invoke an NGUI button event list after repeated failed clicks. Hidden NGUI widgets are filtered by their final alpha. A sampled frame hash is read asynchronously during menu recovery, with a recovery count and still-frame duration in Farm. Unknown screens require a recognized action before input can be dispatched. Overnight recovery remains unverified.

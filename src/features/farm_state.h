@@ -203,4 +203,31 @@ namespace farm::logic {
         }
         void Clicked(uint32_t now) { clicked = true; clickedAt = now; }
     };
+    struct Watchdog {
+        std::string screen;
+        uint32_t changedAt = 0, attemptedAt = 0, recoveredAt = 0;
+        unsigned attempts = 0, recoveries = 0;
+        bool waiting = false;
+        void Observe(const std::string& identity, bool paused, bool needsInput, uint32_t now) {
+            if (paused || !needsInput || identity != screen || !waiting) {
+                screen = identity;
+                changedAt = recoveredAt = now;
+                attempts = 0;
+                attemptedAt = now;
+            }
+            waiting = needsInput && !paused;
+        }
+        bool CanAttempt(uint32_t now) const {
+            const uint32_t delay = attempts < 3 ? 2000 : std::min(15000u, 5000u + (attempts - 3) * 2000u);
+            return waiting && (!attempts || now - attemptedAt >= delay);
+        }
+        void Attempted(uint32_t now) { attemptedAt = now; if (attempts < 1000) ++attempts; }
+        bool Recover(uint32_t now) {
+            if (!waiting || now - changedAt < 10000 || now - recoveredAt < 10000) return false;
+            recoveredAt = now;
+            ++recoveries;
+            return true;
+        }
+    };
+
 }

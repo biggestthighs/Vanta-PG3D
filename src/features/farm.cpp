@@ -28,8 +28,11 @@ namespace {
     logic::ActionGate actionGate;
     bool ready = false, profileCombat = false;
     DWORD startedAt = 0, tickAt = 0, scanAt = 0;
-    std::string lastAction;
-    int actionAttempts = 0;
+    logic::Watchdog watchdog;
+    std::atomic<bool> watchFrames{false};
+    std::atomic<uint64_t> frameHash{0};
+    std::atomic<DWORD> frameChangedAt{0};
+    DWORD lastFrameRecovery = 0;
     int reportedKills = -1;
     rewards::Tracker rewardTracker;
     unsigned rewardMatch = 0, rewardClaim = 0;
@@ -91,6 +94,8 @@ namespace {
     void *findObjects, *componentGo, *goTransform, *goActive, *objectName, *transformParent, *goChildren;
     void *hudType, *unityEventGetter, *unityEventInvoke, *goSendMessage;
     void *goComponents, *behaviourType, *behaviourEnabled;
+    void *widgetType, *widgetAlpha, *executeDelegates;
+    int buttonEventsOffset = 0;
     bool hudPresent = false, modalPresent = false;
 
     void* Klass(const char* name, const char* space = "UnityEngine") {
@@ -333,6 +338,20 @@ namespace {
             if (!entries.empty()) matchRewards=std::move(entries);
         }
     }
+    bool VisibleControl(void* gameObject) {
+        if (!widgetType || !widgetAlpha) return true;
+        bool inactive = false;
+        Root widgets(Call(goChildren,gameObject,{widgetType,&inactive}));
+        const auto objects = Array(widgets.pointer);
+        if (objects.empty()) return true;
+        for (void* widget : objects) {
+            auto* boxed = Call(widgetAlpha,widget);
+            float alpha = 0;
+            if (boxed) memcpy(&alpha,static_cast<uint8_t*>(boxed)+16,sizeof(alpha));
+            if (alpha > .02f) return true;
+        }
+        return false;
+    }
     void Scan(bool diagnostic) {
         controls.clear();
         hudPresent = modalPresent = false;
@@ -347,7 +366,7 @@ namespace {
                 void* gameObject = Call(componentGo, object);
                 Root retainedGo(gameObject);
                 if (!ActiveObject(gameObject) || !Bool(backend.enabled, object)) continue;
-                if (seen.count(gameObject)) continue;
+                if (seen.count(gameObject) || !VisibleControl(gameObject)) continue;
                 const std::string path = Path(gameObject);
                 // NGUI also dispatches OnClick to collider-only backgrounds.
                 // Only admit a modal with an explicit anywhere-to-close prompt.
@@ -393,7 +412,14 @@ namespace {
     const Control* Target(logic::Action action) {
         if (action == logic::Action::None) return nullptr;
         const auto found = std::find_if(controls.begin(), controls.end(), [&](const auto& control) { return Eligible(control) && control.action == action; });
-        return found == controls.end() ? nullptr : &*found;
+        if (found == controls.end()) return nullptr;
+        std::vector<const Control*> candidates;
+        for (const auto& control : controls)
+            if (Eligible(control) && control.action == action &&
+                logic::Normalize(control.label) == logic::Normalize(found->label) &&
+                logic::IsNoticeDismiss(control.path,control.label) == logic::IsNoticeDismiss(found->path,found->label))
+                candidates.push_back(&control);
+        return candidates[watchdog.attempts % candidates.size()];
     }
     bool Has(logic::Action action) {
         return std::any_of(controls.begin(), controls.end(), [&](const auto& control) { return Eligible(control) && control.action == action; });
@@ -477,6 +503,7 @@ namespace {
         cfg.world = worldSettings;
         cfg.panic = panic;
         running = false;
+        watchFrames = false;
         profileCombat = false;
         if (applyFov) game::ApplyFov();
     }
@@ -491,6 +518,9 @@ namespace {
         status.message = message;
         status.rewards = rewardTracker.Snapshot();
         status.unreadRewards = static_cast<int>(rewardTracker.unread.size());
+        status.recoveries = watchdog.recoveries;
+        const auto changed = frameChangedAt.load();
+        status.frameStillSeconds = watchFrames && frameHash.load() && changed ? (GetTickCount()-changed)/1000 : 0;
     }
     std::string Message(logic::Phase phase) {
         switch (phase) {
@@ -505,10 +535,8 @@ namespace {
     void Click(logic::Action action, DWORD now) {
         const auto* found = Target(action);
         if (!found) return;
-        const std::string identity = found->path + "|" + found->label;
-        if (identity != lastAction) { lastAction = identity; actionAttempts = 0; }
-        if (actionAttempts >= 3) { SetStatus("The game screen did not change; waiting for manual input"); return; }
-        if (!ActiveObject(found->gameObject) || !Bool(found->backend.enabled, found->object)) return;
+        if (!watchdog.CanAttempt(now)) return;
+        if (!ActiveObject(found->gameObject) || !Bool(found->backend.enabled, found->object) || !VisibleControl(found->gameObject)) return;
         // Copy the target before invoking game code. A callback may replace the
         // UI, so never read the discovery vector again after dispatch.
         const std::string path = found->path, label = found->label;
@@ -535,12 +563,29 @@ namespace {
         } catch (const std::exception& error) {
             Log("[farm-rewards] claim snapshot unavailable: %s",error.what());
         }
+        const bool useEventFallback = watchdog.attempts >= 2;
         rage::Release();
+        watchdog.Attempted(now);
+        actionGate.Clicked(now);
         if (backend.direct) {
             Call(backend.click,object);
         } else if (backend.unity) {
             Root event(Call(unityEventGetter, object));
             Call(unityEventInvoke, event.pointer);
+        } else if (useEventFallback && !backend.dismissOnly && executeDelegates && buttonEventsOffset > 0) {
+            void* events = nullptr;
+            memcpy(&events,static_cast<uint8_t*>(object)+buttonEventsOffset,sizeof(events));
+            int count = 0;
+            if (events) memcpy(&count,static_cast<uint8_t*>(events)+24,sizeof(count));
+            if (count > 0 && count < 4096) {
+                Root retainedEvents(events);
+                Call(executeDelegates,nullptr,{events});
+                Log("[farm-watchdog] invoked the recognized button's event list");
+            } else {
+                Root message(il2::api.string_new("OnClick"));
+                int options = 1;
+                Call(goSendMessage,gameObject,{message.pointer,&options});
+            }
         } else {
             Root message(il2::api.string_new("OnClick"));
             int dontRequireReceiver = 1;
@@ -548,9 +593,7 @@ namespace {
         }
         if (collected) pendingReward = std::move(collected);
         controller.Clicked(action);
-        actionGate.Clicked(now);
         scanAt = 0;
-        ++actionAttempts;
         controls.clear();
         Log("[farm] clicked '%s' text='%s'", path.c_str(), label.c_str());
     }
@@ -574,14 +617,22 @@ void Init() {
         goComponents = Method(Klass("GameObject"), "GetComponents", {"Type"});
         behaviourType = il2::TypeObject(Klass("MonoBehaviour"));
         behaviourEnabled = Method(Klass("Behaviour"), "get_enabled", {});
+        if (void* widget = Klass("UIWidget","")) {
+            widgetType = il2::TypeObject(widget);
+            widgetAlpha = Method(widget,"get_finalAlpha",{});
+        }
         hudType = il2::TypeObject(Klass("InGameGUI", ""));
         if (!findObjects || !objectName || !componentGo || !goTransform || !goActive || !goChildren || !transformParent || !hudType)
             throw std::runtime_error("game UI discovery unavailable");
         if (void* button = Klass("UIButton", "")) {
+            buttonEventsOffset = il2::FieldOffset(button,"onClick");
+            executeDelegates = Method(Klass("EventDelegate",""),"Execute",{"List`1"});
             Backend backend{il2::TypeObject(button), Method(button, "OnClick", {}), Method(button, "get_isEnabled", {}), false};
             if (backend.type && backend.click && backend.enabled && goSendMessage) backends.push_back(backend);
         }
         if (void* button = Klass("Button", "UnityEngine.UI")) {
+            buttonEventsOffset = il2::FieldOffset(button,"onClick");
+            executeDelegates = Method(Klass("EventDelegate",""),"Execute",{"List`1"});
             Backend backend{il2::TypeObject(button), nullptr, Method(button, "IsInteractable", {}), true};
             unityEventGetter = Method(button, "get_onClick", {});
             unityEventInvoke = Method(Klass("UnityEvent", "UnityEngine.Events"), "Invoke", {});
@@ -613,6 +664,10 @@ void Init() {
     }
 }
 
+bool NeedsFrameCheck() { return running && watchFrames; }
+void ObserveFrame(uint64_t hash, uint32_t now) {
+    if (frameHash.exchange(hash) != hash || !frameChangedAt.load()) frameChangedAt = now;
+}
 void Start() { command = 1; }
 void Stop() { command = 2; }
 void Inspect() { inspect = true; }
@@ -660,8 +715,10 @@ void Tick() {
         startedAt = now;
         scanAt = 0;
         actionGate = {};
-        actionAttempts = 0;
-        lastAction.clear();
+        watchdog = {};
+        frameHash = 0;
+        frameChangedAt = now;
+        lastFrameRecovery = now;
         reportedKills = -1;
         DisableFeatures();
         Log("[farm] started; kill limit=%d", cfg.farm.kill_limit);
@@ -718,9 +775,24 @@ void Tick() {
         SetStatus(decision.phase == logic::Phase::Waiting && observation.match ? "Waiting for the game's kill counter" : Message(decision.phase));
         const auto* target = Target(decision.action);
         const std::string identity = target ? target->path + "|" + target->label : "";
-        if (identity != actionGate.identity || decision.action != actionGate.candidate) {
-            lastAction.clear();
-            actionAttempts = 0;
+        const bool externalPause = render::MenuOpen || cfg.panic || foregroundProcess != GetCurrentProcessId();
+        const bool needsInput = decision.action != logic::Action::None || modalPresent || !hudPresent;
+        // Screen identity uses eligible UI, so animation frames cannot hide a stalled claim.
+        std::string screen = std::to_string(int(decision.phase));
+        for (const auto& control : controls) if (Eligible(control)) screen += "|"+control.path+"|"+control.label;
+        watchdog.Observe(screen,externalPause,needsInput,now);
+        watchFrames = needsInput && !externalPause;
+        const bool stalledUi = watchdog.Recover(now);
+        const auto changedFrame = frameChangedAt.load();
+        const bool stalledFrame = watchFrames && frameHash.load() && changedFrame && now-changedFrame >= 15000 && now-lastFrameRecovery >= 15000;
+        if (stalledUi || stalledFrame) {
+            if (stalledFrame) lastFrameRecovery = now;
+            if (!stalledUi) ++watchdog.recoveries;
+            inspect = true;
+            scanAt = 0;
+            Log("[farm-watchdog] stalled UI; attempts=%u frameStillSeconds=%u; refreshing all controls",
+                watchdog.attempts,frameChangedAt.load() ? (now-frameChangedAt.load())/1000 : 0);
+            SetStatus("Recovery check: rescanning visible controls and retrying recognized actions");
         }
         const bool canClick = actionGate.Update(decision.action, identity, observation.paused, now);
         if (decision.action == logic::Action::Replay && !canClick)

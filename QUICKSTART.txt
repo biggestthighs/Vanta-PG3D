@@ -1,4 +1,4 @@
-VANTA v0.1.18 preview - Windows x64
+VANTA v0.1.19 preview - Windows x64
 
 Extract the ENTIRE zip first. Keep Vanta.exe, pg3d_core.dll, offsets.json
 and the models folder together.

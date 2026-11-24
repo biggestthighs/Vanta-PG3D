@@ -234,6 +234,27 @@ int main() {
         Require(gunGate.Update(Action::Reward, xp, false, 3200), "Continue must resume after gun dismissal");
         rewardScreen.reward = false;
         Require(rewards.Tick(rewardScreen, 3).action == Action::Replay, "replay must resume once all notices close");
+        Watchdog retry;
+        retry.Observe("visible claim",false,true,100);
+        for (uint32_t now : {1100u,3100u,5100u}) {
+            Require(retry.CanAttempt(now),"initial retry must remain available");
+            retry.Attempted(now);
+        }
+        Require(!retry.CanAttempt(7100),"three failures must back off");
+        Require(retry.CanAttempt(10100),"three failures must not permanently stop Farm");
+        Require(retry.Recover(10100),"unchanged claim must trigger a recovery rescan");
+        Require(!retry.Recover(11000),"recovery scans must be rate limited");
+        retry.Attempted(10100);
+        Require(!retry.CanAttempt(12000) && retry.CanAttempt(17100),"later retry interval must increase");
+        retry.Observe("visible claim",true,true,18000);
+        Require(!retry.CanAttempt(30000) && !retry.Recover(30000),"unfocused or paused Farm must not recover with input");
+        retry.Observe("next claim",false,true,31000);
+        Require(retry.attempts==0 && retry.CanAttempt(32000),"a new screen must reset the retry budget");
+        retry.Observe("idle match",false,false,40000);
+        Require(!retry.Recover(90000),"normal idle matches must not be treated as stalled screens");
+        Watchdog wrap;
+        wrap.Observe("claim",false,true,0xfffff000u);
+        Require(wrap.Recover(0x2000u),"watchdog must survive the Windows tick counter wrapping");
         Controller navigation;
         Observation menu;
         menu.deathmatch = menu.nuclearCity = menu.start = true;
