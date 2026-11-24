@@ -84,6 +84,7 @@ namespace {
         std::string path, label;
         logic::Action action = logic::Action::None;
         bool modal = false;
+        int depth = 0;
         // Snapshots can outlive the discovery array. Keep both managed wrappers
         // alive until the snapshot is discarded, including during scene changes.
         std::unique_ptr<Root> objectRoot, gameObjectRoot;
@@ -95,6 +96,10 @@ namespace {
     void *hudType, *unityEventGetter, *unityEventInvoke, *goSendMessage;
     void *goComponents, *behaviourType, *behaviourEnabled;
     void *widgetType, *widgetAlpha, *executeDelegates;
+    void *rectType, *rectAlpha, *rectCalculateAlpha, *frameCount, *panelType, *panelDepth;
+    struct UiVisibility { bool visible = true; int depth = 0; };
+    UiVisibility Visibility(void* gameObject);
+    bool VisibleControl(void* gameObject);
     int buttonEventsOffset = 0;
     bool hudPresent = false, modalPresent = false;
 
@@ -229,7 +234,9 @@ namespace {
             for (void* label : Array(labels.pointer)) {
                 const std::string value = il2::Str(Call(text.getter, label));
                 if (value.empty()) continue;
-                closePrompt |= logic::HasClosePrompt(value);
+                const bool isPrompt = logic::HasClosePrompt(value);
+                if (isPrompt && !VisibleControl(Call(componentGo,label))) continue;
+                closePrompt |= isPrompt;
                 if (result.size() >= 1024 || !seen.insert(logic::Normalize(value)).second) continue;
                 if (!result.empty()) result += ' ';
                 result += value.substr(0,1024-result.size());
@@ -247,7 +254,7 @@ namespace {
             for (void* label : Array(labels.pointer)) {
                 if (!logic::HasClosePrompt(il2::Str(Call(text.getter,label)))) continue;
                 void* promptGo = Call(componentGo,label);
-                if (!ActiveObject(promptGo)) continue;
+                if (!ActiveObject(promptGo) || !VisibleControl(promptGo)) continue;
                 Root prompt(promptGo);
                 void* transform = Call(goTransform,promptGo);
                 for (int depth=0; transform && depth<10; ++depth) {
@@ -256,7 +263,8 @@ namespace {
                     const auto content = Label(owner);
                     // Inspect only the active notice containing the actual prompt.
                     bool foundReceiver = false;
-                    if (logic::IsNoticeDismiss(path,content)) {
+                    const auto visibility = Visibility(owner);
+                    if (logic::IsNoticeDismiss(path,content) && visibility.visible) {
                         if (!inspected.insert(owner).second) break;
                         modalPresent = true;
                         Root scripts(Call(goComponents,owner,{behaviourType}));
@@ -274,6 +282,7 @@ namespace {
                             control.gameObjectRoot = std::make_unique<Root>(owner);
                             control.action = logic::Action::Reward;
                             control.modal = true;
+                            control.depth = visibility.depth;
                             if (diagnostic) Log("[farm] notice handler '%s' text='%s'",path.c_str(),content.c_str());
                             // A verified receiver takes priority over a collider that may have no OnClick.
                             controls.insert(controls.begin(),std::move(control));
@@ -299,7 +308,7 @@ namespace {
                 const bool inScope = progress ? path.find("universalrewardview") != std::string::npos :
                     path.find("networkstarttablengui") != std::string::npos &&
                     (path.find("endinterface") != std::string::npos || path.find("expprogressview") != std::string::npos);
-                if (!inScope) continue;
+                if (!inScope || !VisibleControl(go)) continue;
                 const auto value = il2::Str(Call(type.getter,label));
                 if (value.find_first_of("0123456789") == std::string::npos) continue;
                 void* transform = Call(goTransform,go);
@@ -338,20 +347,56 @@ namespace {
             if (!entries.empty()) matchRewards=std::move(entries);
         }
     }
-    bool VisibleControl(void* gameObject) {
-        if (!widgetType || !widgetAlpha) return true;
+    float Alpha(void* boxed) {
+        float alpha = 0;
+        if (boxed) memcpy(&alpha,static_cast<uint8_t*>(boxed)+16,sizeof(alpha));
+        return alpha;
+    }
+    UiVisibility Visibility(void* gameObject) {
+        UiVisibility result;
+        if (!ActiveObject(gameObject)) return {false,0};
+        if (goComponents && rectType && (rectAlpha || (rectCalculateAlpha && frameCount))) {
+            int frame = 0;
+            if (frameCount) {
+                auto* boxed = Call(frameCount,nullptr);
+                if (boxed) memcpy(&frame,static_cast<uint8_t*>(boxed)+16,sizeof(frame));
+            }
+            bool foundPanel = false;
+            void* transform = Call(goTransform,gameObject);
+            for (int depth=0; transform && depth<20; ++depth) {
+                void* owner = Call(componentGo,transform);
+                Root rectangles(Call(goComponents,owner,{rectType}));
+                for (void* rect : Array(rectangles.pointer)) {
+                    auto* calculate = rectCalculateAlpha && frameCount ? Method(il2::api.object_get_class(rect),"CalculateFinalAlpha",{"Int32"}) : nullptr;
+                    if (!calculate && !rectAlpha) continue;
+                    const auto alpha = calculate ? Alpha(Call(calculate,rect,{&frame})) : Alpha(Call(rectAlpha,rect));
+                    if (!logic::VisibleAlpha(alpha)) return {false,result.depth};
+                }
+                if (!foundPanel && panelType && panelDepth) {
+                    Root panels(Call(goComponents,owner,{panelType}));
+                    for (void* panel : Array(panels.pointer)) {
+                        auto* boxed = Call(panelDepth,panel);
+                        int value = 0;
+                        if (boxed) memcpy(&value,static_cast<uint8_t*>(boxed)+16,sizeof(value));
+                        result.depth = foundPanel ? std::max(result.depth,value) : value;
+                        foundPanel = true;
+                    }
+                }
+                transform = Call(transformParent,transform);
+            }
+            return result;
+        }
+        if (!widgetType || !widgetAlpha) return result;
         bool inactive = false;
         Root widgets(Call(goChildren,gameObject,{widgetType,&inactive}));
         const auto objects = Array(widgets.pointer);
-        if (objects.empty()) return true;
-        for (void* widget : objects) {
-            auto* boxed = Call(widgetAlpha,widget);
-            float alpha = 0;
-            if (boxed) memcpy(&alpha,static_cast<uint8_t*>(boxed)+16,sizeof(alpha));
-            if (alpha > .02f) return true;
-        }
-        return false;
+        if (objects.empty()) return result;
+        result.visible = std::any_of(objects.begin(),objects.end(),[](void* widget) {
+            return logic::VisibleAlpha(Alpha(Call(widgetAlpha,widget)));
+        });
+        return result;
     }
+    bool VisibleControl(void* gameObject) { return Visibility(gameObject).visible; }
     void Scan(bool diagnostic) {
         controls.clear();
         hudPresent = modalPresent = false;
@@ -366,7 +411,9 @@ namespace {
                 void* gameObject = Call(componentGo, object);
                 Root retainedGo(gameObject);
                 if (!ActiveObject(gameObject) || !Bool(backend.enabled, object)) continue;
-                if (seen.count(gameObject) || !VisibleControl(gameObject)) continue;
+                if (seen.count(gameObject)) continue;
+                const auto visibility = Visibility(gameObject);
+                if (!visibility.visible) continue;
                 const std::string path = Path(gameObject);
                 // NGUI also dispatches OnClick to collider-only backgrounds.
                 // Only admit a modal with an explicit anywhere-to-close prompt.
@@ -392,6 +439,7 @@ namespace {
                 Control control{object, gameObject, backend, path, label};
                 control.objectRoot = std::make_unique<Root>(object);
                 control.gameObjectRoot = std::make_unique<Root>(gameObject);
+                control.depth = visibility.depth;
                 control.action = logic::Classify(control.path, control.label);
                 control.modal = logic::IsModal(control.path) || control.action == logic::Action::Reward;
                 modalPresent |= control.modal;
@@ -404,7 +452,8 @@ namespace {
         catch (const std::exception& error) { Log("[farm-rewards] observation unavailable: %s",error.what()); }
         // A foreground notice must close before a Continue button underneath.
         std::stable_sort(controls.begin(), controls.end(), [](const Control& left, const Control& right) {
-            return logic::IsNoticeDismiss(left.path, left.label) && !logic::IsNoticeDismiss(right.path, right.label);
+            return logic::BeforeControl(left.depth,logic::IsNoticeDismiss(left.path,left.label),
+                                        right.depth,logic::IsNoticeDismiss(right.path,right.label));
         });
         if (diagnostic) Log("[farm] scan: %zu enabled buttons; match HUD=%d modal=%d", controls.size(), hudPresent, modalPresent);
     }
@@ -415,7 +464,7 @@ namespace {
         if (found == controls.end()) return nullptr;
         std::vector<const Control*> candidates;
         for (const auto& control : controls)
-            if (Eligible(control) && control.action == action &&
+            if (Eligible(control) && control.depth == found->depth && control.action == action &&
                 logic::Normalize(control.label) == logic::Normalize(found->label) &&
                 logic::IsNoticeDismiss(control.path,control.label) == logic::IsNoticeDismiss(found->path,found->label))
                 candidates.push_back(&control);
@@ -621,6 +670,16 @@ void Init() {
             widgetType = il2::TypeObject(widget);
             widgetAlpha = Method(widget,"get_finalAlpha",{});
         }
+        if (void* rect = Klass("UIRect","")) {
+            rectType = il2::TypeObject(rect);
+            rectAlpha = Method(rect,"get_finalAlpha",{});
+            rectCalculateAlpha = Method(rect,"CalculateFinalAlpha",{"Int32"});
+            frameCount = Method(Klass("Time"),"get_frameCount",{});
+        }
+        if (void* panel = Klass("UIPanel","")) {
+            panelType = il2::TypeObject(panel);
+            panelDepth = Method(panel,"get_depth",{});
+        }
         hudType = il2::TypeObject(Klass("InGameGUI", ""));
         if (!findObjects || !objectName || !componentGo || !goTransform || !goActive || !goChildren || !transformParent || !hudType)
             throw std::runtime_error("game UI discovery unavailable");
@@ -631,8 +690,6 @@ void Init() {
             if (backend.type && backend.click && backend.enabled && goSendMessage) backends.push_back(backend);
         }
         if (void* button = Klass("Button", "UnityEngine.UI")) {
-            buttonEventsOffset = il2::FieldOffset(button,"onClick");
-            executeDelegates = Method(Klass("EventDelegate",""),"Execute",{"List`1"});
             Backend backend{il2::TypeObject(button), nullptr, Method(button, "IsInteractable", {}), true};
             unityEventGetter = Method(button, "get_onClick", {});
             unityEventInvoke = Method(Klass("UnityEvent", "UnityEngine.Events"), "Invoke", {});
@@ -656,6 +713,8 @@ void Init() {
         if (backends.empty() || textTypes.empty()) throw std::runtime_error("no supported game buttons or labels found");
         ready = true;
         Log("[farm] UI ready: %zu button backends, %zu label types", backends.size(), textTypes.size());
+        Log("[farm] visibility: widget=%d rect=%d calculated=%d panel-depth=%d NGUI-event-offset=%d",
+            widgetAlpha != nullptr,rectAlpha != nullptr,rectCalculateAlpha != nullptr,panelDepth != nullptr,buttonEventsOffset);
         try { InitStats(); }
         catch (const std::exception& error) { Log("[farm] match kills unavailable: %s", error.what()); }
     } catch (const std::exception& error) {

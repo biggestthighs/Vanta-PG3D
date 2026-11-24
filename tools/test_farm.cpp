@@ -1,5 +1,7 @@
 #include "../src/features/farm_state.h"
 #include "../src/features/farm_rewards.h"
+#include "../src/core/frame_sample.h"
+#include <limits>
 #include <iostream>
 #include <stdexcept>
 
@@ -234,6 +236,34 @@ int main() {
         Require(gunGate.Update(Action::Reward, xp, false, 3200), "Continue must resume after gun dismissal");
         rewardScreen.reward = false;
         Require(rewards.Tick(rewardScreen, 3).action == Action::Replay, "replay must resume once all notices close");
+        Require(!VisibleAlpha(0.f) && !VisibleAlpha(.01f) && VisibleAlpha(1.f),
+                "transparent notice must not be selected over a visible claim");
+        Require(!VisibleAlpha(std::numeric_limits<float>::quiet_NaN()) &&
+                !VisibleAlpha(std::numeric_limits<float>::infinity()),"invalid alpha must not authorize a click");
+        Require(BeforeControl(50,false,20,true),"foreground claim must outrank a background notice");
+        Require(BeforeControl(50,true,50,false) && !BeforeControl(50,false,50,true),
+                "visible notice must retain priority at the same panel depth");
+        Require(BeforeControl(-2,false,-5,true),"negative panel depths must preserve foreground ordering");
+        {
+            static_assert(frame_sample::Bytes == 10240);
+            for (const auto size : {std::pair{32u,16u},std::pair{1920u,1080u},std::pair{7680u,4320u}}) {
+                for (unsigned i=0; i<frame_sample::PatchCount; ++i) {
+                    const auto patch=frame_sample::SourcePatch(size.first,size.second,i);
+                    Require(patch.x+frame_sample::PatchWidth <= size.first && patch.y+frame_sample::PatchHeight <= size.second,
+                            "GPU sampling boxes must stay inside the source at all resolutions");
+                }
+            }
+            const size_t tightPitch=frame_sample::Width*4, paddedPitch=tightPitch+64;
+            std::vector<uint8_t> tight(frame_sample::Bytes,32), padded(paddedPitch*frame_sample::Height,255);
+            for (unsigned y=0; y<frame_sample::Height; ++y)
+                std::copy_n(tight.data()+y*tightPitch,tightPitch,padded.data()+y*paddedPitch);
+            const auto hash=frame_sample::Hash(tight.data(),tightPitch);
+            Require(hash && hash==frame_sample::Hash(padded.data(),paddedPitch),"driver row padding must not affect frame identity");
+            padded[0]=128;
+            Require(hash!=frame_sample::Hash(padded.data(),paddedPitch),"changed frame samples must change the hash");
+            Require(frame_sample::Hash(nullptr,tightPitch)==0 && frame_sample::Hash(tight.data(),1)==0,
+                    "invalid mapped buffers must be rejected");
+        }
         Watchdog retry;
         retry.Observe("visible claim",false,true,100);
         for (uint32_t now : {1100u,3100u,5100u}) {

@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
 #include <string>
 
 namespace farm::logic {
@@ -101,6 +102,12 @@ namespace farm::logic {
                 normalized.push_back(static_cast<char>(character));
         }
         return normalized;
+    }
+
+    inline bool VisibleAlpha(float alpha) { return std::isfinite(alpha) && alpha > .02f; }
+    inline bool BeforeControl(int leftDepth, bool leftNotice, int rightDepth, bool rightNotice) {
+        if (leftDepth != rightDepth) return leftDepth > rightDepth;
+        return leftNotice && !rightNotice;
     }
 
     inline bool IsNoticeBackdrop(const std::string& path) {

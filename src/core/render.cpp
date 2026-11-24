@@ -1,5 +1,6 @@
 #include "render.h"
 #include "config.h"
+#include "frame_sample.h"
 #include "../features/farm.h"
 #include "menu.h"
 #include "../sdk/game.h"
@@ -111,13 +112,7 @@ namespace render {
         if (farmFramePending) {
             D3D11_MAPPED_SUBRESOURCE pixels{};
             if (FAILED(s_ctx->Map(farmFrame,0,D3D11_MAP_READ,D3D11_MAP_FLAG_DO_NOT_WAIT,&pixels))) return;
-            D3D11_TEXTURE2D_DESC desc{};
-            farmFrame->GetDesc(&desc);
-            uint64_t hash = 1469598103934665603ull;
-            for (unsigned y=1; y<18; ++y) for (unsigned x=1; x<32; ++x) {
-                const auto* pixel = static_cast<const uint8_t*>(pixels.pData)+(desc.Height*y/18)*pixels.RowPitch+(desc.Width*x/32)*4;
-                for (int channel=0; channel<3; ++channel) hash = (hash ^ (pixel[channel]>>3))*1099511628211ull;
-            }
+            const auto hash = frame_sample::Hash(static_cast<const uint8_t*>(pixels.pData),pixels.RowPitch);
             s_ctx->Unmap(farmFrame,0);
             farm::ObserveFrame(hash,now);
             farmFramePending = false;
@@ -128,14 +123,32 @@ namespace render {
         if (FAILED(swap->GetBuffer(0,__uuidof(ID3D11Texture2D),reinterpret_cast<void**>(&backbuffer)))) return;
         D3D11_TEXTURE2D_DESC desc{};
         backbuffer->GetDesc(&desc);
-        if (desc.SampleDesc.Count == 1 && (desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM || desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM)) {
-            if (!farmFrame) {
-                desc.Usage = D3D11_USAGE_STAGING;
-                desc.BindFlags = desc.MiscFlags = 0;
-                desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-                s_dev->CreateTexture2D(&desc,nullptr,&farmFrame);
+        if (desc.SampleDesc.Count == 1 && desc.Width >= frame_sample::PatchWidth && desc.Height >= frame_sample::PatchHeight &&
+            (desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM || desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM)) {
+            if (farmFrame) {
+                D3D11_TEXTURE2D_DESC sampled{};
+                farmFrame->GetDesc(&sampled);
+                if (sampled.Format != desc.Format) ClearFarmFrame();
             }
-            if (farmFrame) { s_ctx->CopyResource(farmFrame,backbuffer); farmFramePending = true; }
+            if (!farmFrame) {
+                auto sampled = desc;
+                sampled.Width = frame_sample::Width;
+                sampled.Height = frame_sample::Height;
+                sampled.MipLevels = sampled.ArraySize = 1;
+                sampled.Usage = D3D11_USAGE_STAGING;
+                sampled.BindFlags = sampled.MiscFlags = 0;
+                sampled.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+                if (SUCCEEDED(s_dev->CreateTexture2D(&sampled,nullptr,&farmFrame)))
+                    Log("[farm-watchdog] frame readback uses %zu bytes plus driver row alignment",frame_sample::Bytes);
+            }
+            if (farmFrame) {
+                for (unsigned i=0; i<frame_sample::PatchCount; ++i) {
+                    const auto patch = frame_sample::SourcePatch(desc.Width,desc.Height,i);
+                    const D3D11_BOX box{patch.x,patch.y,0,patch.x+frame_sample::PatchWidth,patch.y+frame_sample::PatchHeight,1};
+                    s_ctx->CopySubresourceRegion(farmFrame,0,i*frame_sample::PatchWidth,0,0,backbuffer,0,&box);
+                }
+                farmFramePending = true;
+            }
         }
         backbuffer->Release();
     }
