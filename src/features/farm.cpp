@@ -481,22 +481,28 @@ namespace {
         if (diagnostic) Log("[farm] scan: %zu enabled buttons; match HUD=%d modal=%d", controls.size(), hudPresent, modalPresent);
     }
     bool Eligible(const Control& control) {
-        int foregroundDepth = std::numeric_limits<int>::min();
-        for (const auto& candidate : controls)
-            if (candidate.modal) foregroundDepth = std::max(foregroundDepth,candidate.depth);
-        return logic::EligibleAtDepth(modalPresent,control.modal,control.depth,foregroundDepth);
+        return logic::EligibleAtDepth(modalPresent,control.modal,control.depth,logic::ForegroundDepth(controls));
     }
     const Control* Target(logic::Action action) {
         if (action == logic::Action::None) return nullptr;
         const auto found = std::find_if(controls.begin(), controls.end(), [&](const auto& control) { return Eligible(control) && control.action == action; });
         if (found == controls.end()) return nullptr;
         std::vector<const Control*> candidates;
+        // After repeated unconfirmed clicks, cycle every button with this action at any depth.
+        const bool escalate = watchdog.attempts >= 4;
         for (const auto& control : controls)
-            if (Eligible(control) && control.depth == found->depth && control.action == action &&
+            if (control.action == action && (escalate || (Eligible(control) && control.depth == found->depth &&
                 logic::Normalize(control.label) == logic::Normalize(found->label) &&
-                logic::IsNoticeDismiss(control.path,control.label) == logic::IsNoticeDismiss(found->path,found->label))
+                logic::IsNoticeDismiss(control.path,control.label) == logic::IsNoticeDismiss(found->path,found->label))))
                 candidates.push_back(&control);
         return candidates[watchdog.attempts % candidates.size()];
+    }
+    // Controls are sorted foreground first, so retries walk from the top layer down.
+    const Control* FallbackTarget() {
+        std::vector<const Control*> candidates;
+        for (const auto& control : controls)
+            if (logic::SafeDismiss(control.path,control.label)) candidates.push_back(&control);
+        return candidates.empty() ? nullptr : candidates[watchdog.attempts % candidates.size()];
     }
     bool Has(logic::Action action) {
         return std::any_of(controls.begin(), controls.end(), [&](const auto& control) { return Eligible(control) && control.action == action; });
@@ -612,8 +618,7 @@ namespace {
         default: return "Waiting for a match";
         }
     }
-    void Click(logic::Action action, DWORD now) {
-        const auto* found = Target(action);
+    void Click(const Control* found, logic::Action action, bool fallback, DWORD now) {
         if (!found) return;
         if (!watchdog.CanAttempt(now)) return;
         DWORD foreground = 0;
@@ -628,7 +633,8 @@ namespace {
         void* object = found->object;
         void* gameObject = found->gameObject;
         const Backend backend = found->backend;
-        if (!backend.dismissOnly && logic::Classify(path,Label(gameObject)) != action) {
+        const auto current = Label(gameObject);
+        if (!backend.dismissOnly && (fallback ? !logic::SafeDismiss(path,current) : logic::Classify(path,current) != action)) {
             scanAt = 0;
             return;
         }
@@ -654,7 +660,8 @@ namespace {
             Log("[farm-rewards] claim snapshot unavailable: %s",error.what());
         }
         std::optional<PendingClick> dispatched;
-        if (!pendingClick && action != logic::Action::Deathmatch && action != logic::Action::Classic && action != logic::Action::NuclearCity) {
+        // Fallback controls have no recognized action to confirm; the watchdog's screen identity tracks them.
+        if (!fallback && !pendingClick && action != logic::Action::Deathmatch && action != logic::Action::Classic && action != logic::Action::NuclearCity) {
             PendingClick click{action,path,std::make_unique<Root>(gameObject),{}};
             click.confirmation.Start(now);
             dispatched = std::move(click);
@@ -694,7 +701,7 @@ namespace {
         controller.Clicked(action);
         scanAt = 0;
         controls.clear();
-        Log("[farm] dispatched '%s' text='%s'", path.c_str(), label.c_str());
+        Log("[farm] %s '%s' text='%s'", fallback ? "last-resort dispatched" : "dispatched", path.c_str(), label.c_str());
     }
 }
 
@@ -919,10 +926,23 @@ void Tick() {
                 watchdog.attempts,frameChangedAt.load() ? (now-frameChangedAt.load())/1000 : 0);
             SetStatus("Recovery check: rescanning visible controls and retrying recognized actions");
         }
-        const bool canClick = actionGate.Update(decision.action, identity, observation.paused, now);
+        // Last resort: a screen that needs input has had nothing clickable for 30 s.
+        // Cycle safe dismiss buttons (Continue/OK/Close/Collect...) with the normal retry backoff.
+        auto action = decision.action;
+        bool fallback = false;
+        if (!target && !externalPause && (modalPresent || !hudPresent) && watchdog.StalledFor(now) >= 30000) {
+            target = FallbackTarget();
+            fallback = target != nullptr;
+            if (fallback) {
+                action = logic::Action::Reward;
+                SetStatus("Recovery: trying safe Continue/OK/Close buttons on an unrecognized screen");
+            }
+        }
+        const bool canClick = actionGate.Update(action, target ? target->path + "|" + target->label : identity,
+                                                fallback ? externalPause : observation.paused, now);
         if (decision.action == logic::Action::Replay && !canClick)
             SetStatus("Waiting for trophy, match and XP rewards to finish");
-        if (scanned && target && canClick) Click(decision.action, now);
+        if (scanned && target && canClick) Click(target, action, fallback, now);
     } catch (const std::exception& error) {
         combat = false;
         if (running && profileCombat) DisableFeatures();

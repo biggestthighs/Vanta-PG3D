@@ -266,6 +266,30 @@ int main() {
         }
         Require(!EligibleAtDepth(true,true,10,20) && EligibleAtDepth(true,true,20,20) &&
                 !EligibleAtDepth(true,false,30,20),"a higher modal must block background actions");
+        {
+            // Replay of the 0.1.21 stall: Progress Road "i" tiles live in a higher scroll panel.
+            const std::string road = "ModalBannerHolder(Clone)/ProgressRoadHolder/ProgressRoadBannerHolder/UI Root/Camera/ProgressRoadBanner(Clone)/ProgressRoadView/";
+            struct Ui { std::string path, label; bool modal; Action action; int depth; };
+            std::vector<Ui> ui{{road+"EndlessScrollView/EndlessScrollDynamic/78/Holder/MainUI_Holder/Btn_cont","i",true,Action::None,40},
+                               {road+"ProgressRoad_FloatingView (OFF)/body/BtnInfo","",true,Action::None,45},
+                               {road+"Button_Continue/btn_Continue","Continue",true,Action::None,10}};
+            for (auto& control : ui) { control.modal = IsModal(control.path); control.action = Classify(control.path,control.label); }
+            Require(ui[2].modal && ui[2].action == Action::Reward && ui[0].action == Action::None,"Progress Road Continue must be a reward action");
+            Require(EligibleAtDepth(true,true,ui[2].depth,ForegroundDepth(ui)),"info buttons in a higher panel must not hide Progress Road Continue");
+            ui.push_back({"ModalBannerHolder(Clone)/UniversalRewardHolder/UniversalRewardBannerHolder/UI Root/Camera/UniversalRewardBanner(Clone)/UniversalRewardView/BtnCollect","Get Reward",true,Action::None,60});
+            ui.back().action = Classify(ui.back().path,ui.back().label);
+            Require(!EligibleAtDepth(true,true,ui[2].depth,ForegroundDepth(ui)),"a Get Reward banner above Progress Road must still go first");
+            Require(SafeDismiss(road+"Button_Continue/btn_Continue","Continue") && SafeDismiss("Some/Unknown/Popup/BtnClose","") &&
+                    SafeDismiss("Popup/Panel/Ok","OK") && !SafeDismiss("Shop/Offer/BtnBuy","Continue") &&
+                    !SafeDismiss("Popup/Panel/Btn","Upgrade 70") && !SafeDismiss("Popup/Panel/Btn","Watch video") &&
+                    !SafeDismiss("Respawn/Btn_Report","Report Player") && !SafeDismiss("Pause/BtnQuit","Quit"),
+                    "last-resort clicks must stay on dismiss buttons and never spend");
+            Watchdog stall;
+            stall.Observe("unknown",false,true,1000);
+            Require(stall.StalledFor(30999) < 30000 && stall.StalledFor(31000) >= 30000,"fallback must arm after 30 s on one screen");
+            stall.Observe("unknown",true,true,32000);
+            Require(stall.StalledFor(90000) == 0,"an unfocused or paused game must never arm the fallback");
+        }
         Require(ScreenIdentity({"claim","notice","claim"}) == ScreenIdentity({"notice","claim"}),
                 "control reordering or duplicates must not reset recovery");
         Confirmation effect;

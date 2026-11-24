@@ -141,6 +141,22 @@ namespace farm::logic {
         return (notice || availableScreen) && HasClosePrompt(label);
     }
 
+    inline bool Spends(const std::string& name, const std::string& text) {
+        for (const char* blocked : {"purchase", "buy", "shop", "upgrade", "unlock", "watchvideo", "advert", "doublethe", "doubleyour", "openchest", "gems", "subscription", "spend"})
+            if (name.find(blocked) != std::string::npos || text.find(blocked) != std::string::npos) return true;
+        return false;
+    }
+
+    // Last-resort watchdog target on a screen no rule recognizes: dismiss-style only, never spending.
+    inline bool SafeDismiss(const std::string& path, const std::string& label) {
+        const std::string name = Normalize(path), text = Normalize(label);
+        if (Spends(name, text)) return false;
+        const std::string leaf = Normalize(path.substr(path.find_last_of('/') == std::string::npos ? 0 : path.find_last_of('/') + 1));
+        return text == "continue" || text == "ok" || text == "close" || text == "collect" || text == "claim" ||
+               text == "getreward" || text == "gotit" || HasClosePrompt(label) ||
+               (text.empty() && (leaf == "close" || leaf == "btnclose" || leaf == "buttonclose" || leaf == "closebutton"));
+    }
+
     inline Action Classify(const std::string& path, const std::string& label) {
         const std::string name = Normalize(path), text = Normalize(label);
         const std::string leaf = Normalize(path.substr(path.find_last_of('/') == std::string::npos ? 0 : path.find_last_of('/') + 1));
@@ -152,8 +168,7 @@ namespace farm::logic {
         if (IsNoticeDismiss(path, label)) return Action::Reward;
         // Dismiss only the notice's close surface, never its weapon tiles.
         if (text == "pressanywheretoclose" || text == "tapanywheretoclose") return Action::Reward;
-        for (const char* blocked : {"purchase", "buy", "shop", "upgrade", "unlock", "watchvideo", "advert", "doublethe", "doubleyour", "openchest", "gems", "subscription", "spend"})
-            if (name.find(blocked) != std::string::npos || text.find(blocked) != std::string::npos) return Action::None;
+        if (Spends(name, text)) return Action::None;
         // Trophy Continue and the match-reward OK share EndInterface. Their
         // names do not necessarily contain "reward"; StartInterface is behind them.
         const bool matchResults = name.find("networkstarttablengui") != std::string::npos &&
@@ -197,6 +212,15 @@ namespace farm::logic {
 
     inline bool EligibleAtDepth(bool hasModal, bool isModal, int depth, int foregroundDepth) {
         return !hasModal || (isModal && depth >= foregroundDepth);
+    }
+
+    // Only recognized buttons define the foreground. Info/scroll buttons sit in
+    // higher NGUI panels (Progress Road's "i" tiles) and must never hide Continue.
+    template <class Controls> int ForegroundDepth(const Controls& controls) {
+        int depth = INT32_MIN;
+        for (const auto& control : controls)
+            if (control.modal && control.action != Action::None) depth = std::max(depth, control.depth);
+        return depth;
     }
 
     inline std::string ScreenIdentity(std::vector<std::string> controls) {
@@ -260,6 +284,7 @@ namespace farm::logic {
             return waiting && (!attempts || now - attemptedAt >= delay);
         }
         void Attempted(uint32_t now) { attemptedAt = now; if (attempts < 1000) ++attempts; }
+        uint32_t StalledFor(uint32_t now) const { return waiting ? now - changedAt : 0; }
         bool Recover(uint32_t now) {
             if (!waiting || now - changedAt < 10000 || now - recoveredAt < 10000) return false;
             recoveredAt = now;
