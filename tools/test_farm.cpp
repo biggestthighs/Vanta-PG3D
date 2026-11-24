@@ -264,6 +264,73 @@ int main() {
             Require(frame_sample::Hash(nullptr,tightPitch)==0 && frame_sample::Hash(tight.data(),1)==0,
                     "invalid mapped buffers must be rejected");
         }
+        Require(!EligibleAtDepth(true,true,10,20) && EligibleAtDepth(true,true,20,20) &&
+                !EligibleAtDepth(true,false,30,20),"a higher modal must block background actions");
+        Require(ScreenIdentity({"claim","notice","claim"}) == ScreenIdentity({"notice","claim"}),
+                "control reordering or duplicates must not reset recovery");
+        Confirmation effect;
+        effect.Start(100);
+        Require(!effect.Observe(true,400),"dispatch must not count as a completed click");
+        Require(!effect.Observe(false,500) && !effect.Observe(true,600),"temporary disappearance must not confirm a claim");
+        Require(!effect.Observe(false,900) && !effect.Observe(false,1200) && effect.Observe(false,1400),
+                "confirmation requires sustained disappearance across scans");
+        Require(!effect.Observe(false,2000),"a screen transition must be confirmed only once");
+        Confirmation wrappedEffect;
+        wrappedEffect.Start(0xfffffff0u);
+        Require(!wrappedEffect.Observe(false,0xfffffff0u) && wrappedEffect.Observe(false,0x300u),
+                "confirmation timers must survive tick counter wraparound");
+        Require(Classify("InGameGUI/Camera/PausePanel/ButtonsWidget/Grid/BtnResume","Resume") == Action::Resume,
+                "the recorded pause screen must expose its Resume action");
+        Require(Classify("UI/Unknown/ResumeButton","Resume") == Action::None,
+                "Resume recognition must be restricted to the known pause panel");
+        Controller pausedMatch;
+        Observation resumeScreen;
+        resumeScreen.match = resumeScreen.alive = resumeScreen.resume = true;
+        resumeScreen.matchKills = 0;
+        Require(pausedMatch.Tick(resumeScreen,3).action == Action::Resume && !pausedMatch.Tick(resumeScreen,3).combat,
+                "in-game pause must stop combat while Resume is pending");
+        resumeScreen.paused = true;
+        Require(pausedMatch.Tick(resumeScreen,3).action == Action::None,"external pause must block automatic Resume");
+        unsigned simulatedTransitions = 0;
+        uint32_t simulatedTime = 0xffff0000u;
+        for (unsigned cycle=0; cycle<2000; ++cycle) {
+            Controller flow;
+            const unsigned stages = cycle%3 + 2; // A match result, optional XP/notice stages, then replay.
+            for (unsigned stage=0; stage<stages; ++stage) {
+                Watchdog recovery;
+                ActionGate settling;
+                Confirmation confirmation;
+                bool present = true, finished = false;
+                unsigned attempts = 0;
+                const unsigned failures = (cycle+stage)%8;
+                const bool replayStage = stage+1==stages;
+                for (unsigned tick=0; tick<1600 && !finished; ++tick) {
+                    simulatedTime += 250;
+                    const bool paused = tick>=10 && tick<18;
+                    const auto identity = tick%2 ? ScreenIdentity({"active control","background"}) : ScreenIdentity({"background","active control"});
+                    recovery.Observe(identity,paused,true,simulatedTime);
+                    Observation observed;
+                    observed.paused = paused;
+                    observed.reward = !replayStage && present;
+                    observed.replay = replayStage && present;
+                    const auto decision = flow.Tick(observed,3);
+                    if (confirmation.Observe(present,simulatedTime)) { finished = true; ++simulatedTransitions; break; }
+                    const auto target = present ? "recognized active control" : "";
+                    if (settling.Update(decision.action,target,paused,simulatedTime) && recovery.CanAttempt(simulatedTime) && present) {
+                        Require(!paused,"simulated focus loss must never dispatch input");
+                        settling.Clicked(simulatedTime);
+                        recovery.Attempted(simulatedTime);
+                        if (!confirmation.pending) confirmation.Start(simulatedTime);
+                        if (++attempts>failures) present = false;
+                    }
+                    recovery.Recover(simulatedTime);
+                }
+                Require(finished && !present,"sustained delayed/failed claim simulation must recover and verify completion");
+                Require(attempts==failures+1,"simulation must neither skip failures nor over-dispatch after a confirmed transition");
+            }
+        }
+        Require(simulatedTransitions==5999,"all simulated reward and replay transitions must complete");
+        std::cout << "PASS: 2000 simulated cycles, 5999 confirmed transitions with failed inputs, focus loss, optional stages and timer wraparound\n";
         Watchdog retry;
         retry.Observe("visible claim",false,true,100);
         for (uint32_t now : {1100u,3100u,5100u}) {

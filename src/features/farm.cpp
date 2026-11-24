@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <limits>
 #include <stdexcept>
 #include <unordered_set>
 #include <unordered_map>
@@ -65,7 +66,16 @@ namespace {
         bool progress = false;
         std::vector<rewards::Entry> entries;
         std::unique_ptr<Root> owner;
+        logic::Confirmation confirmation;
     };
+    struct PendingClick {
+        logic::Action action;
+        std::string path;
+        std::unique_ptr<Root> owner;
+        logic::Confirmation confirmation;
+    };
+    std::optional<PendingClick> pendingClick;
+    unsigned confirmedTransitions = 0;
 
     std::optional<PendingReward> pendingReward;
     struct Backend {
@@ -331,7 +341,7 @@ namespace {
             const bool stillVisible = std::any_of(controls.begin(),controls.end(),[](const Control& c) {
                 return c.gameObject == pendingReward->owner->pointer && c.path == pendingReward->path;
             });
-            if (!stillVisible) {
+            if (pendingReward->confirmation.Observe(stillVisible,GetTickCount())) {
                 rewardTracker.Commit(pendingReward->event,pendingReward->progress,pendingReward->entries);
                 for (const auto& entry : pendingReward->entries)
                     Log("[farm-rewards] %s %lld %s %s",pendingReward->event.c_str(),
@@ -397,6 +407,18 @@ namespace {
         return result;
     }
     bool VisibleControl(void* gameObject) { return Visibility(gameObject).visible; }
+    void ObserveClick() {
+        if (!pendingClick) return;
+        const bool present = std::any_of(controls.begin(),controls.end(),[](const Control& control) {
+            return control.gameObject == pendingClick->owner->pointer && control.action == pendingClick->action;
+        });
+        if (pendingClick->confirmation.Observe(present,GetTickCount())) {
+            ++confirmedTransitions;
+            Log("[farm-confirm] screen changed after '%s'",pendingClick->path.c_str());
+            pendingClick.reset();
+            watchdog.screen.clear();
+        }
+    }
     void Scan(bool diagnostic) {
         controls.clear();
         hudPresent = modalPresent = false;
@@ -448,6 +470,7 @@ namespace {
             }
         }
         ScanNoticeDismissals(diagnostic);
+        ObserveClick();
         try { ObserveRewards(); }
         catch (const std::exception& error) { Log("[farm-rewards] observation unavailable: %s",error.what()); }
         // A foreground notice must close before a Continue button underneath.
@@ -457,7 +480,12 @@ namespace {
         });
         if (diagnostic) Log("[farm] scan: %zu enabled buttons; match HUD=%d modal=%d", controls.size(), hudPresent, modalPresent);
     }
-    bool Eligible(const Control& control) { return !modalPresent || control.modal; }
+    bool Eligible(const Control& control) {
+        int foregroundDepth = std::numeric_limits<int>::min();
+        for (const auto& candidate : controls)
+            if (candidate.modal) foregroundDepth = std::max(foregroundDepth,candidate.depth);
+        return logic::EligibleAtDepth(modalPresent,control.modal,control.depth,foregroundDepth);
+    }
     const Control* Target(logic::Action action) {
         if (action == logic::Action::None) return nullptr;
         const auto found = std::find_if(controls.begin(), controls.end(), [&](const auto& control) { return Eligible(control) && control.action == action; });
@@ -552,6 +580,7 @@ namespace {
         cfg.world = worldSettings;
         cfg.panic = panic;
         running = false;
+        pendingClick.reset();
         watchFrames = false;
         profileCombat = false;
         if (applyFov) game::ApplyFov();
@@ -568,6 +597,8 @@ namespace {
         status.rewards = rewardTracker.Snapshot();
         status.unreadRewards = static_cast<int>(rewardTracker.unread.size());
         status.recoveries = watchdog.recoveries;
+        status.confirmedTransitions = confirmedTransitions;
+        status.awaitingTransition = pendingClick.has_value();
         const auto changed = frameChangedAt.load();
         status.frameStillSeconds = watchFrames && frameHash.load() && changed ? (GetTickCount()-changed)/1000 : 0;
     }
@@ -585,33 +616,51 @@ namespace {
         const auto* found = Target(action);
         if (!found) return;
         if (!watchdog.CanAttempt(now)) return;
-        if (!ActiveObject(found->gameObject) || !Bool(found->backend.enabled, found->object) || !VisibleControl(found->gameObject)) return;
+        DWORD foreground = 0;
+        GetWindowThreadProcessId(GetForegroundWindow(),&foreground);
+        if (render::MenuOpen || cfg.panic || foreground != GetCurrentProcessId()) return;
+        if (!ActiveObject(found->gameObject) || !Bool(found->backend.enabled, found->object)) return;
+        const auto visibility = Visibility(found->gameObject);
+        if (!visibility.visible || visibility.depth != found->depth) { scanAt = 0; return; }
         // Copy the target before invoking game code. A callback may replace the
         // UI, so never read the discovery vector again after dispatch.
         const std::string path = found->path, label = found->label;
         void* object = found->object;
         void* gameObject = found->gameObject;
         const Backend backend = found->backend;
+        if (!backend.dismissOnly && logic::Classify(path,Label(gameObject)) != action) {
+            scanAt = 0;
+            return;
+        }
         Root retainedObject(object), retainedGo(gameObject);
         std::optional<PendingReward> collected;
         try {
-        if (action == logic::Action::Reward && !pendingReward) {
-            const auto normalized = logic::Normalize(path);
-            const bool progress = normalized.find("universalrewardview") != std::string::npos;
-            const bool match = normalized.find("endinterface") != std::string::npos;
-            if (progress || match) {
-                PendingReward pending;
-                pending.event = progress ? "claim/"+std::to_string(++rewardClaim) : "match/"+std::to_string(rewardMatch);
-                pending.path = path;
-                pending.progress = progress;
-                pending.entries = progress ? ReadRewards(true) : matchRewards;
-                pending.owner = std::make_unique<Root>(gameObject);
-                collected = std::move(pending);
+            if (action == logic::Action::Reward && !pendingReward) {
+                const auto normalized = logic::Normalize(path);
+                const bool progress = normalized.find("universalrewardview") != std::string::npos;
+                const bool match = normalized.find("endinterface") != std::string::npos;
+                if (progress || match) {
+                    PendingReward pending;
+                    pending.event = progress ? "claim/"+std::to_string(++rewardClaim) : "match/"+std::to_string(rewardMatch);
+                    pending.path = path;
+                    pending.progress = progress;
+                    pending.entries = progress ? ReadRewards(true) : matchRewards;
+                    pending.owner = std::make_unique<Root>(gameObject);
+                    pending.confirmation.Start(now);
+                    collected = std::move(pending);
+                }
             }
-        }
         } catch (const std::exception& error) {
             Log("[farm-rewards] claim snapshot unavailable: %s",error.what());
         }
+        std::optional<PendingClick> dispatched;
+        if (!pendingClick && action != logic::Action::Deathmatch && action != logic::Action::Classic && action != logic::Action::NuclearCity) {
+            PendingClick click{action,path,std::make_unique<Root>(gameObject),{}};
+            click.confirmation.Start(now);
+            dispatched = std::move(click);
+        }
+        GetWindowThreadProcessId(GetForegroundWindow(),&foreground);
+        if (render::MenuOpen || cfg.panic || foreground != GetCurrentProcessId()) return;
         const bool useEventFallback = watchdog.attempts >= 2;
         rage::Release();
         watchdog.Attempted(now);
@@ -640,11 +689,12 @@ namespace {
             int dontRequireReceiver = 1;
             Call(goSendMessage, gameObject, {message.pointer, &dontRequireReceiver});
         }
+        if (dispatched) pendingClick = std::move(dispatched);
         if (collected) pendingReward = std::move(collected);
         controller.Clicked(action);
         scanAt = 0;
         controls.clear();
-        Log("[farm] clicked '%s' text='%s'", path.c_str(), label.c_str());
+        Log("[farm] dispatched '%s' text='%s'", path.c_str(), label.c_str());
     }
 }
 
@@ -742,7 +792,7 @@ void SettingsToSave(Cfg& settings) {
     settings.farm = farmSettings;
     settings.world = worldSettings;
 }
-void Shutdown() { pendingReward.reset(); command = 0; RestoreProfile(false); controls.clear(); SetStatus("Stopped"); }
+void Shutdown() { pendingClick.reset(); pendingReward.reset(); command = 0; RestoreProfile(false); controls.clear(); SetStatus("Stopped"); }
 
 void Tick() {
     // Unity callbacks can re-enter while a button handler is running.
@@ -769,6 +819,8 @@ void Tick() {
         rewardMatch = rewardClaim = 0;
         matchRewards.clear();
         pendingReward.reset();
+        pendingClick.reset();
+        confirmedTransitions = 0;
         running = true;
         combat = false;
         startedAt = now;
@@ -814,10 +866,21 @@ void Tick() {
         observation.battle = Has(logic::Action::Battle);
         observation.start = Has(logic::Action::Start);
         observation.respawn = Has(logic::Action::Respawn);
-        const MatchStats stats = ReadStats();
+        observation.resume = Has(logic::Action::Resume);
+        MatchStats stats;
+        if (observation.match && !modalPresent) {
+            try { stats = ReadStats(); }
+            catch (const std::exception& error) {
+                static DWORD lastStatsError = 0;
+                if (now-lastStatsError >= 10000) {
+                    Log("[farm] match stats temporarily unavailable: %s",error.what());
+                    lastStatsError = now;
+                }
+            }
+        }
         observation.matchKills = stats.kills;
         observation.matchId = stats.identity;
-        if (modalPresent && !observation.reward && !observation.respawn) observation.paused = true;
+        if (modalPresent && !observation.reward && !observation.respawn && !observation.resume) observation.paused = true;
         const auto decision = controller.Tick(observation, cfg.farm.kill_limit);
         combat = decision.combat;
         if (combat) EnableCombat();
@@ -837,8 +900,11 @@ void Tick() {
         const bool externalPause = render::MenuOpen || cfg.panic || foregroundProcess != GetCurrentProcessId();
         const bool needsInput = decision.action != logic::Action::None || modalPresent || !hudPresent;
         // Screen identity uses eligible UI, so animation frames cannot hide a stalled claim.
-        std::string screen = std::to_string(int(decision.phase));
-        for (const auto& control : controls) if (Eligible(control)) screen += "|"+control.path+"|"+control.label;
+        std::vector<std::string> visibleControls;
+        for (const auto& control : controls) {
+            if (Eligible(control)) visibleControls.push_back(control.path+"|"+std::to_string(int(control.action))+"|"+std::to_string(control.depth));
+        }
+        const auto screen = logic::ScreenIdentity(std::move(visibleControls));
         watchdog.Observe(screen,externalPause,needsInput,now);
         watchFrames = needsInput && !externalPause;
         const bool stalledUi = watchdog.Recover(now);

@@ -16,6 +16,8 @@ namespace farm {
         std::vector<rewards::Total> rewards;
         int unreadRewards = 0;
         unsigned recoveries = 0;
+        unsigned confirmedTransitions = 0;
+        bool awaitingTransition = false;
         unsigned frameStillSeconds = 0;
     };
     bool NeedsFrameCheck();

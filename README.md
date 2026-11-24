@@ -2,11 +2,11 @@
 
 A Windows x64 client for Pixel Gun 3D PC Edition, with a portable launcher, in-game controls and Deathmatch automation.
 
-**v0.1.20 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
+**v0.1.21 preview** ? active development. Game updates can break compatibility. Custom models remain experimental; their files are static meshes without skeletal animation.
 
 ## Download and run
 
-Get `Vanta-v0.1.20-win64-with-source.zip` and **extract the entire ZIP** into a writable folder.
+Get `Vanta-v0.1.21-win64-with-source.zip` and **extract the entire ZIP** into a writable folder.
 
 1. Start Pixel Gun 3D and wait for the main menu.
 2. Open `Vanta.exe` and click **Load Vanta**.
@@ -79,4 +79,6 @@ Farm shows automatically observed rewards for the current run, with separate mat
 
 Farm checks unchanged menus every ten seconds, rescans controls and retries recognized actions with increasing delays. Recovery can cycle through equivalent controls and invoke an NGUI button event list after repeated failed clicks. Hidden NGUI widgets are filtered by their final alpha. A sampled frame hash is read asynchronously during menu recovery, with a recovery count and still-frame duration in Farm. Unknown screens require a recognized action before input can be dispatched. Overnight recovery remains unverified.
 
-In v0.1.20, the frame watchdog reads five 32-by-16 patches into a fixed 10 KiB pixel buffer, plus driver row alignment. Notice discovery checks inherited NGUI alpha, calculates current visibility when available, and orders recognized controls by their nearest panel depth. NGUI event-list offsets are kept separate from Unity UI buttons. These changes do not establish the cause of a Windows MEMORY_MANAGEMENT bugcheck.
+In v0.1.21, the frame watchdog reads five 32-by-16 patches into a fixed 10 KiB pixel buffer, plus driver row alignment. Notice discovery checks inherited NGUI alpha, calculates current visibility when available, and orders recognized controls by their nearest panel depth. NGUI event-list offsets are kept separate from Unity UI buttons. These changes do not establish the cause of a Windows MEMORY_MANAGEMENT bugcheck.
+
+In v0.1.21, reward and transient-action confirmation requires sustained disappearance across scans. Farm displays confirmed screen transitions separately from dispatched callbacks. Foreground modal depth blocks background actions. Recovery uses an order-independent UI identity and rechecks focus immediately before dispatch. A known in-game PausePanel Resume button is recognized. These checks are covered by simulated reward/replay cycles and do not establish live overnight reliability.

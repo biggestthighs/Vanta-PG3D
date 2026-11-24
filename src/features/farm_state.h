@@ -3,9 +3,10 @@
 #include <cstdint>
 #include <cmath>
 #include <string>
+#include <vector>
 
 namespace farm::logic {
-    enum class Action { None, Reward, Replay, Deathmatch, Battle, Start, Respawn, Classic, NuclearCity };
+    enum class Action { None, Reward, Replay, Deathmatch, Battle, Start, Respawn, Classic, NuclearCity, Resume };
     enum class Phase { Waiting, Fighting, Idle, Rewards, Queueing, Paused };
 
     struct Observation {
@@ -20,6 +21,7 @@ namespace farm::logic {
         bool battle = false;
         bool start = false;
         bool respawn = false;
+        bool resume = false;
         int matchKills = -1;
         uintptr_t matchId = 0;
     };
@@ -67,6 +69,7 @@ namespace farm::logic {
             }
             if (observation.paused) { result.phase = Phase::Paused; return result; }
             if (observation.reward) { result.phase = Phase::Rewards; result.action = Action::Reward; return result; }
+            if (observation.resume) { result.phase = Phase::Queueing; result.action = Action::Resume; return result; }
             if (observation.replay) { result.phase = Phase::Queueing; result.action = Action::Replay; return result; }
             if (match) {
                 result.phase = quotaReached ? Phase::Idle : observation.matchKills < 0 ? Phase::Waiting : Phase::Fighting;
@@ -170,6 +173,8 @@ namespace farm::logic {
         if (text == "deathmatch" || (name.find("modetab") != std::string::npos && text.rfind("deathmatch", 0) == 0) ||
             name.find("buttondeathmatch") != std::string::npos || name.find("deathmatchbutton") != std::string::npos)
             return Action::Deathmatch;
+        if (name.find("pausepanel") != std::string::npos && leaf == "btnresume" && text == "resume")
+            return Action::Resume;
         if (text == "respawn" || name.find("buttonrespawn") != std::string::npos ||
             (text == "tobattle" && name.find("respawnwindow") != std::string::npos))
             return Action::Respawn;
@@ -185,10 +190,36 @@ namespace farm::logic {
         const std::string name = Normalize(path);
         if (name.find("networkstarttablengui") != std::string::npos &&
             name.find("endinterface") != std::string::npos) return true;
-        for (const char* marker : {"popup", "dialog", "levelup", "rewardwindow", "rewardpanel", "rewardsscreen", "awardwindow", "progressroad", "newweapons", "newguns", "leveling"})
+        for (const char* marker : {"popup", "dialog", "pausepanel", "levelup", "rewardwindow", "rewardpanel", "rewardsscreen", "awardwindow", "progressroad", "newweapons", "newguns", "leveling"})
             if (name.find(marker) != std::string::npos) return true;
         return false;
     }
+
+    inline bool EligibleAtDepth(bool hasModal, bool isModal, int depth, int foregroundDepth) {
+        return !hasModal || (isModal && depth >= foregroundDepth);
+    }
+
+    inline std::string ScreenIdentity(std::vector<std::string> controls) {
+        std::sort(controls.begin(),controls.end());
+        controls.erase(std::unique(controls.begin(),controls.end()),controls.end());
+        std::string result;
+        for (const auto& control : controls) result += std::to_string(control.size()) + ":" + control;
+        return result;
+    }
+
+    struct Confirmation {
+        bool pending = false, missing = false;
+        uint32_t startedAt = 0, missingAt = 0;
+        void Start(uint32_t now) { pending = true; missing = false; startedAt = now; }
+        bool Observe(bool present, uint32_t now) {
+            if (!pending) return false;
+            if (present) { missing = false; return false; }
+            if (!missing) { missing = true; missingAt = now; return false; }
+            if (now - missingAt < 500) return false;
+            pending = false;
+            return true;
+        }
+    };
 
     // Native click callbacks bypass hit testing. Require a stable foreground
     // target so Battle cannot run underneath a reward or between its animations.
