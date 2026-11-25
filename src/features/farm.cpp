@@ -110,8 +110,13 @@ namespace {
     struct UiVisibility { bool visible = true; int depth = 0; };
     UiVisibility Visibility(void* gameObject);
     bool VisibleControl(void* gameObject);
+    void SetStatus(const std::string& message);
+    void *transformPosition, *goLayer, *uiFindCamera, *uiCachedCamera, *worldToScreen, *screenWidth, *screenHeight;
     int buttonEventsOffset = 0;
     bool hudPresent = false, modalPresent = false;
+    std::unique_ptr<Root> prompt; // visible "Press anywhere to close" label from the last scan
+    logic::PromptTapper tapper;
+    POINT tapPoint{};
 
     void* Klass(const char* name, const char* space = "UnityEngine") {
         size_t count = 0;
@@ -265,7 +270,8 @@ namespace {
                 if (!logic::HasClosePrompt(il2::Str(Call(text.getter,label)))) continue;
                 void* promptGo = Call(componentGo,label);
                 if (!ActiveObject(promptGo) || !VisibleControl(promptGo)) continue;
-                Root prompt(promptGo);
+                if (!prompt) prompt = std::make_unique<Root>(promptGo);
+                Root retainedPrompt(promptGo);
                 void* transform = Call(goTransform,promptGo);
                 for (int depth=0; transform && depth<10; ++depth) {
                     void* owner = Call(componentGo,transform);
@@ -419,8 +425,80 @@ namespace {
             watchdog.screen.clear();
         }
     }
+    template <class T> T Unbox(void* boxed) {
+        T value{};
+        if (boxed) memcpy(&value,static_cast<uint8_t*>(boxed)+16,sizeof(value));
+        return value;
+    }
+    // Screen position of the prompt label, via the NGUI camera that renders it.
+    // Falls back to bottom centre, where the prompt sits on every notice seen so far.
+    bool TapPoint(POINT& point, bool& exact) {
+        RECT client{};
+        if (!prompt || !render::Hwnd || !GetClientRect(render::Hwnd,&client) || client.right <= 0 || client.bottom <= 0) return false;
+        logic::ClientPoint result{client.right/2, client.bottom*9/10};
+        exact = false;
+        try {
+            if (transformPosition && goLayer && uiFindCamera && uiCachedCamera && worldToScreen && screenWidth && screenHeight) {
+                struct Vector3 { float x, y, z; };
+                auto position = Unbox<Vector3>(Call(transformPosition,Call(goTransform,prompt->pointer)));
+                int layer = Unbox<int>(Call(goLayer,prompt->pointer));
+                if (void* ui = Call(uiFindCamera,nullptr,{&layer})) {
+                    if (void* camera = Call(uiCachedCamera,ui)) {
+                        const auto screen = Unbox<Vector3>(Call(worldToScreen,camera,{&position}));
+                        exact = logic::UnityToClient(screen.x,screen.y,Unbox<int>(Call(screenWidth,nullptr)),
+                                                     Unbox<int>(Call(screenHeight,nullptr)),client.right,client.bottom,result);
+                    }
+                }
+            }
+        } catch (const std::exception& error) {
+            Log("[farm-tap] prompt position unavailable: %s",error.what());
+        }
+        point = {result.x,result.y};
+        return ClientToScreen(render::Hwnd,&point) != FALSE;
+    }
+    void SendButton(DWORD flags) {
+        INPUT input{};
+        input.type = INPUT_MOUSE;
+        input.mi.dwFlags = flags;
+        SendInput(1,&input,sizeof(input));
+    }
+    void TapPrompt(bool paused, DWORD now) {
+        switch (tapper.Update(prompt != nullptr,paused,now)) {
+        case logic::PromptTapper::Step::Move: {
+            bool exact = false;
+            if (!TapPoint(tapPoint,exact) || !SetCursorPos(tapPoint.x,tapPoint.y)) { tapper.Cancel(now); return; }
+            Log("[farm-tap] tap %u on 'Press anywhere to close' at %ld,%ld (%s)",tapper.taps+1,tapPoint.x,tapPoint.y,
+                exact ? "prompt label" : "bottom centre");
+            SetStatus("Tapping 'Press anywhere to close' until the notice closes");
+            return;
+        }
+        case logic::PromptTapper::Step::Down: {
+            POINT cursor{};
+            // A moved cursor means the user is back: never click where they are pointing.
+            if (!GetCursorPos(&cursor) || cursor.x != tapPoint.x || cursor.y != tapPoint.y || !input::CanAutoClick()) {
+                Log("[farm-tap] tap skipped: cursor moved or game not focused");
+                tapper.Cancel(now);
+                return;
+            }
+            SendButton(MOUSEEVENTF_LEFTDOWN);
+            return;
+        }
+        case logic::PromptTapper::Step::Up:
+            SendButton(MOUSEEVENTF_LEFTUP);
+            scanAt = 0;
+            return;
+        default:
+            return;
+        }
+    }
+    void ReleaseTap() {
+        if (tapper.phase == 2) SendButton(MOUSEEVENTF_LEFTUP);
+        tapper = {};
+        prompt.reset();
+    }
     void Scan(bool diagnostic) {
         controls.clear();
+        prompt.reset();
         hudPresent = modalPresent = false;
         Root hud(Find(hudType));
         for (void* object : Array(hud.pointer))
@@ -587,6 +665,7 @@ namespace {
         cfg.panic = panic;
         running = false;
         pendingClick.reset();
+        ReleaseTap();
         watchFrames = false;
         profileCombat = false;
         if (applyFov) game::ApplyFov();
@@ -737,6 +816,15 @@ void Init() {
             panelType = il2::TypeObject(panel);
             panelDepth = Method(panel,"get_depth",{});
         }
+        transformPosition = Method(Klass("Transform"),"get_position",{});
+        goLayer = Method(Klass("GameObject"),"get_layer",{});
+        worldToScreen = Method(Klass("Camera"),"WorldToScreenPoint",{"Vector3"});
+        screenWidth = Method(Klass("Screen"),"get_width",{});
+        screenHeight = Method(Klass("Screen"),"get_height",{});
+        if (void* uiCamera = Klass("UICamera","")) {
+            uiFindCamera = Method(uiCamera,"FindCameraForLayer",{"Int32"});
+            uiCachedCamera = Method(uiCamera,"get_cachedCamera",{});
+        }
         hudType = il2::TypeObject(Klass("InGameGUI", ""));
         if (!findObjects || !objectName || !componentGo || !goTransform || !goActive || !goChildren || !transformParent || !hudType)
             throw std::runtime_error("game UI discovery unavailable");
@@ -772,6 +860,7 @@ void Init() {
         Log("[farm] UI ready: %zu button backends, %zu label types", backends.size(), textTypes.size());
         Log("[farm] visibility: widget=%d rect=%d calculated=%d panel-depth=%d NGUI-event-offset=%d",
             widgetAlpha != nullptr,rectAlpha != nullptr,rectCalculateAlpha != nullptr,panelDepth != nullptr,buttonEventsOffset);
+        Log("[farm] prompt tap: exact position=%d",transformPosition && goLayer && uiFindCamera && uiCachedCamera && worldToScreen && screenWidth && screenHeight);
         try { InitStats(); }
         catch (const std::exception& error) { Log("[farm] match kills unavailable: %s", error.what()); }
     } catch (const std::exception& error) {
@@ -938,6 +1027,7 @@ void Tick() {
                 SetStatus("Recovery: trying safe Continue/OK/Close buttons on an unrecognized screen");
             }
         }
+        TapPrompt(externalPause, now);
         const bool canClick = actionGate.Update(action, target ? target->path + "|" + target->label : identity,
                                                 fallback ? externalPause : observation.paused, now);
         if (decision.action == logic::Action::Replay && !canClick)

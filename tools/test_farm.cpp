@@ -290,6 +290,37 @@ int main() {
             stall.Observe("unknown",true,true,32000);
             Require(stall.StalledFor(90000) == 0,"an unfocused or paused game must never arm the fallback");
         }
+        {
+            // Dead City / weapon unlock notices: tap the prompt until it is gone.
+            using Step = PromptTapper::Step;
+            PromptTapper tap;
+            Require(tap.Update(true,false,1000) == Step::None && tap.Update(true,false,3900) == Step::None,
+                    "the notice's own close handler gets 3 s before real taps");
+            Require(tap.Update(true,false,4000) == Step::Move && tap.Update(true,false,4100) == Step::None &&
+                    tap.Update(true,false,4120) == Step::Down && tap.Update(true,false,4150) == Step::None &&
+                    tap.Update(true,false,4200) == Step::Up,"a tap must be move, down, up on separate frames");
+            Require(tap.Update(true,false,5600) == Step::None && tap.Update(true,false,5700) == Step::Move,
+                    "taps must repeat every 1.5 s while the prompt stays");
+            tap.Update(true,false,5820);
+            Require(tap.phase == 2 && tap.Update(true,true,5850) == Step::Up && tap.phase == 0,
+                    "losing focus with the button held must release it");
+            Require(tap.Update(true,true,9000) == Step::None,"no taps while paused or unfocused");
+            Require(tap.Update(true,false,9100) == Step::None && tap.Update(true,false,12100) == Step::Move,
+                    "returning from a pause restarts the settle delay");
+            Require(tap.Update(false,false,12200) == Step::None && tap.Update(true,false,12300) == Step::None,
+                    "a closed notice stops tapping; the next notice settles first");
+            tap.Cancel(15400);
+            Require(tap.Update(true,false,16000) == Step::None && tap.Update(true,false,16900) == Step::Move,
+                    "a skipped tap retries after 1.5 s");
+            ClientPoint point{};
+            Require(UnityToClient(960,108,1920,1080,1920,1080,point) && point.x == 960 && point.y == 972,
+                    "Unity bottom-left coordinates must flip to the client's top-left");
+            Require(UnityToClient(960,540,1920,1080,1280,720,point) && point.x == 640 && point.y == 360,
+                    "a scaled render target must map onto the window");
+            Require(!UnityToClient(-5,10,1920,1080,1920,1080,point) && !UnityToClient(10,2000,1920,1080,1920,1080,point) &&
+                    !UnityToClient(std::numeric_limits<float>::quiet_NaN(),10,1920,1080,1920,1080,point),
+                    "off-screen or invalid prompt positions must never be tapped");
+        }
         Require(ScreenIdentity({"claim","notice","claim"}) == ScreenIdentity({"notice","claim"}),
                 "control reordering or duplicates must not reset recovery");
         Confirmation effect;

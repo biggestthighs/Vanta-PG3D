@@ -293,4 +293,46 @@ namespace farm::logic {
         }
     };
 
+    // "Press anywhere to close" notices only close for a real NGUI hit-test tap.
+    // Taps the prompt until it disappears, one input step per frame so Unity sees
+    // move -> down -> up as separate events.
+    struct PromptTapper {
+        enum class Step { None, Move, Down, Up };
+        bool visible = false;
+        int phase = 0; // 0 idle, 1 cursor moved, 2 button held
+        uint32_t visibleSince = 0, stepAt = 0;
+        unsigned taps = 0;
+        Step Update(bool prompt, bool paused, uint32_t now) {
+            if (!prompt || paused) {
+                const bool held = phase == 2;
+                visible = false;
+                phase = 0;
+                return held ? Step::Up : Step::None;
+            }
+            if (!visible) { visible = true; visibleSince = stepAt = now; phase = 0; }
+            switch (phase) {
+            case 0:
+                if (now - visibleSince < 3000 || (taps && now - stepAt < 1500)) return Step::None;
+                phase = 1; stepAt = now; return Step::Move;
+            case 1:
+                if (now - stepAt < 120) return Step::None;
+                phase = 2; stepAt = now; return Step::Down;
+            default:
+                if (now - stepAt < 80) return Step::None;
+                phase = 0; stepAt = now; ++taps; return Step::Up;
+            }
+        }
+        void Cancel(uint32_t now) { phase = 0; stepAt = now; if (!taps) taps = 1; }
+    };
+
+    struct ClientPoint { int x, y; };
+    // Unity screen space is bottom-left origin in render-target pixels; Win32 client space is top-left.
+    inline bool UnityToClient(float sx, float sy, int screenW, int screenH, int clientW, int clientH, ClientPoint& out) {
+        if (!std::isfinite(sx) || !std::isfinite(sy) || screenW <= 0 || screenH <= 0 || clientW <= 0 || clientH <= 0) return false;
+        if (sx < 0 || sy < 0 || sx >= float(screenW) || sy >= float(screenH)) return false;
+        out.x = std::clamp(int(sx * clientW / screenW), 0, clientW - 1);
+        out.y = std::clamp(int((screenH - sy) * clientH / screenH), 0, clientH - 1);
+        return true;
+    }
+
 }
