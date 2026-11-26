@@ -6,7 +6,7 @@
 #include <vector>
 
 namespace farm::logic {
-    enum class Action { None, Reward, Replay, Deathmatch, Battle, Start, Respawn, Classic, NuclearCity, Resume };
+    enum class Action { None, Reward, Replay, Deathmatch, Battle, Start, Respawn, Classic, NuclearCity, Resume, Leave };
     enum class Phase { Waiting, Fighting, Idle, Rewards, Queueing, Paused };
 
     struct Observation {
@@ -89,7 +89,7 @@ namespace farm::logic {
         void Clicked(Action action) {
             if (action == Action::Deathmatch) modeSelected = true;
             if (action == Action::NuclearCity) mapSelected = true;
-            if (action == Action::Battle) { modeSelected = false; mapSelected = false; }
+            if (action == Action::Battle || action == Action::Leave) { modeSelected = false; mapSelected = false; }
         }
     };
 
@@ -183,6 +183,10 @@ namespace farm::logic {
         if (name.find("networkstarttablengui") != std::string::npos &&
             name.find("startinterface") != std::string::npos && leaf == "startbutton" && text == "tobattle")
             return Action::Replay;
+        // Used only by LobbyEscape, never by the normal flow.
+        if (name.find("networkstarttablengui") != std::string::npos && name.find("startinterface") != std::string::npos &&
+            leaf == "backbutton" && text == "quit")
+            return Action::Leave;
         if (text.rfind("nuclearcity", 0) == 0) return Action::NuclearCity;
         if (text.rfind("classicmodes", 0) == 0) return Action::Classic;
         if (text == "deathmatch" || (name.find("modetab") != std::string::npos && text.rfind("deathmatch", 0) == 0) ||
@@ -323,6 +327,18 @@ namespace farm::logic {
             }
         }
         void Cancel(uint32_t now) { phase = 0; stepAt = now; if (!taps) taps = 1; }
+    };
+
+    // The game can leave To Battle! disabled on the start table for good while the
+    // match runs on without you; only leaving and rejoining recovers it.
+    struct LobbyEscape {
+        bool stuck = false;
+        uint32_t since = 0;
+        bool Due(bool quitVisible, bool startEnabled, bool blocked, uint32_t now) {
+            if (!quitVisible || startEnabled || blocked) { stuck = false; return false; }
+            if (!stuck) { stuck = true; since = now; }
+            return now - since >= 90000;
+        }
     };
 
     struct ClientPoint { int x, y; };

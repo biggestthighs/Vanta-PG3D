@@ -291,6 +291,26 @@ int main() {
             Require(stall.StalledFor(90000) == 0,"an unfocused or paused game must never arm the fallback");
         }
         {
+            // 0.1.23 stall: start table with To Battle! disabled while the match runs on.
+            const std::string quit = "NetworkStartTableNGUI(Clone)/Camera/StartInterface/BottomLeft/BackButtons/back Button";
+            Require(Classify(quit,"Quit") == Action::Leave && Classify("Pause/Panel/back Button","Quit") == Action::None &&
+                    Classify("NetworkStartTableNGUI(Clone)/Camera/StartInterface/BottomRight/StartButton","To Battle!") == Action::Replay,
+                    "only the start table's Quit may be used to leave");
+            LobbyEscape escape;
+            Require(!escape.Due(true,false,false,1000) && !escape.Due(true,false,false,90999) && escape.Due(true,false,false,91000),
+                    "leave only after To Battle! stays disabled for 90 s");
+            Require(!escape.Due(true,true,false,92000) && !escape.Due(true,false,false,93000) && !escape.Due(true,false,false,182999),
+                    "an enabled To Battle! resets the escape timer");
+            Require(!escape.Due(true,false,true,200000) && !escape.Due(true,false,false,200001),
+                    "a popup, the match HUD or lost focus must reset the timer");
+            Controller rejoin;
+            rejoin.modeSelected = rejoin.mapSelected = true;
+            rejoin.Clicked(Action::Leave);
+            Observation menu;
+            menu.deathmatch = menu.start = true;
+            Require(rejoin.Tick(menu,3).action == Action::Deathmatch,"after leaving, Farm must reselect Deathmatch before starting");
+        }
+        {
             // Dead City / weapon unlock notices: tap the prompt until it is gone.
             using Step = PromptTapper::Step;
             PromptTapper tap;

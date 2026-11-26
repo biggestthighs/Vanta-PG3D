@@ -116,6 +116,7 @@ namespace {
     bool hudPresent = false, modalPresent = false;
     std::unique_ptr<Root> prompt; // visible "Press anywhere to close" label from the last scan
     logic::PromptTapper tapper;
+    logic::LobbyEscape lobbyEscape;
     POINT tapPoint{};
 
     void* Klass(const char* name, const char* space = "UnityEngine") {
@@ -923,6 +924,7 @@ void Tick() {
         scanAt = 0;
         actionGate = {};
         watchdog = {};
+        lobbyEscape = {};
         frameHash = 0;
         frameChangedAt = now;
         lastFrameRecovery = now;
@@ -1025,6 +1027,13 @@ void Tick() {
             if (fallback) {
                 action = logic::Action::Reward;
                 SetStatus("Recovery: trying safe Continue/OK/Close buttons on an unrecognized screen");
+            }
+        }
+        if (lobbyEscape.Due(Has(logic::Action::Leave),observation.replay,hudPresent || modalPresent || externalPause,now) && !target) {
+            target = Target(logic::Action::Leave);
+            if (target) {
+                action = logic::Action::Leave;
+                SetStatus("To Battle! stayed disabled for 90 s: leaving to rejoin from the menu");
             }
         }
         TapPrompt(externalPause, now);
